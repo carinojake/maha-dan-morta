@@ -8,6 +8,7 @@ const VfxStudio = preload("res://scripts/vfx_studio.gd")
 const MonsterData = preload("res://scripts/monster_data.gd")
 const CodexUI = preload("res://scripts/codex_ui.gd")
 const CombatSystem = preload("res://scripts/combat_system.gd")
+const CutinOverlay = preload("res://scripts/cutin_overlay.gd")
 const TILE_SIZE := 64
 const ROOM_STRIDE := ChapterData.ROOM_STRIDE
 const HERO_SCALE := Vector2(0.42, 0.42)
@@ -131,6 +132,8 @@ var combo_rank_label: Label
 var combo_sub_label: Label
 var combo_bar: ProgressBar
 var dodge_ready_label: Label
+var cutin_overlay: Control
+var codex_cutin_btn: Button
 
 
 func _exit_tree():
@@ -607,38 +610,58 @@ func _build_hud():
 	help_btn.pressed.connect(_toggle_help_overlay)
 	btn_row.add_child(help_btn)
 
+	var combo_sb := StyleBoxFlat.new()
+	combo_sb.bg_color = Color(0.05, 0.07, 0.11, 0.78)
+	combo_sb.border_color = Color(0.82, 0.68, 0.25, 0.68)
+	combo_sb.set_border_width_all(1)
+	combo_sb.set_corner_radius_all(6)
+	combo_sb.content_margin_left = 9
+	combo_sb.content_margin_right = 9
+	combo_sb.content_margin_top = 4
+	combo_sb.content_margin_bottom = 5
+
 	combo_panel = PanelContainer.new()
-	combo_panel.add_theme_stylebox_override("panel", sb)
+	combo_panel.add_theme_stylebox_override("panel", combo_sb)
+	combo_panel.size_flags_horizontal = Control.SIZE_SHRINK_END
 	combo_panel.visible = false
 	top_right.add_child(combo_panel)
 
 	var cb_vb := VBoxContainer.new()
-	cb_vb.add_theme_constant_override("separation", 3)
+	cb_vb.add_theme_constant_override("separation", 2)
 	combo_panel.add_child(cb_vb)
 
+	var cb_row := HBoxContainer.new()
+	cb_row.add_theme_constant_override("separation", 8)
+	cb_vb.add_child(cb_row)
+
 	combo_rank_label = Label.new()
-	combo_rank_label.text = "RANK D · 0 HITS"
-	combo_rank_label.add_theme_font_size_override("font_size", 16)
+	combo_rank_label.text = "D · 0"
+	combo_rank_label.add_theme_font_size_override("font_size", 13)
 	combo_rank_label.add_theme_color_override("font_color", Color("#94a3b8"))
-	cb_vb.add_child(combo_rank_label)
+	cb_row.add_child(combo_rank_label)
 
 	combo_sub_label = Label.new()
-	combo_sub_label.text = "ดาเมจ +0% · หยก +0%"
-	combo_sub_label.add_theme_font_size_override("font_size", 11)
+	combo_sub_label.text = "+0% ดาเมจ · +0% หยก"
+	combo_sub_label.add_theme_font_size_override("font_size", 10)
 	combo_sub_label.add_theme_color_override("font_color", Color("#cbd5e1"))
-	cb_vb.add_child(combo_sub_label)
+	combo_sub_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	combo_sub_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cb_row.add_child(combo_sub_label)
 
-	combo_bar = _make_bar(Color("#facc15"), 204, 8)
+	combo_bar = _make_bar(Color("#facc15"), 184, 4)
 	combo_bar.max_value = 100.0
 	combo_bar.value = 0.0
 	cb_vb.add_child(combo_bar)
 
 	dodge_ready_label = Label.new()
-	dodge_ready_label.text = "★ สวนกลับพริบตาพร้อม! (คริ 100%)"
-	dodge_ready_label.add_theme_font_size_override("font_size", 11)
+	dodge_ready_label.text = "★ คริสวนกลับ 100%"
+	dodge_ready_label.add_theme_font_size_override("font_size", 10)
 	dodge_ready_label.add_theme_color_override("font_color", Color("#fde047"))
 	dodge_ready_label.visible = false
 	cb_vb.add_child(dodge_ready_label)
+
+	cutin_overlay = CutinOverlay.new()
+	hud.add_child(cutin_overlay)
 
 	var codex_refs := CodexUI.build_modal(hud, sb, chapter, {
 		"set_tab": _set_codex_tab,
@@ -646,6 +669,7 @@ func _build_hud():
 		"warp_room": _warp_to_room,
 		"boss_rush": _start_boss_rush,
 		"toggle": _toggle_upgrade_modal,
+		"toggle_cutin": _toggle_cutin,
 	})
 	upgrade_overlay = codex_refs["overlay"]
 	upgrade_jade_lbl = codex_refs["jade_lbl"]
@@ -656,6 +680,8 @@ func _build_hud():
 	codex_party_box = codex_refs["party_box"]
 	codex_chapters_box = codex_refs["chapters_box"]
 	codex_chapter_btns = codex_refs["chapter_btns"]
+	codex_cutin_btn = codex_refs["cutin_btn"]
+	_refresh_cutin_btn()
 	_set_codex_tab(0)
 
 	help_overlay = CodexUI.build_help_overlay(hud, sb, _toggle_help_overlay)
@@ -1057,12 +1083,18 @@ func _process(delta: float):
 
 	var real_delta := delta / maxf(Engine.time_scale, 0.05)
 	combat.tick(real_delta)
+	if cutin_overlay:
+		cutin_overlay.tick(real_delta)
+
+	var desired_scale: float = combat.get_desired_time_scale(hitstop_timer)
+	if hitstop_timer <= 0.0 and cutin_overlay and cutin_overlay.is_playing():
+		desired_scale = minf(desired_scale, cutin_overlay.get_slowmo_scale())
 
 	if hitstop_timer > 0.0:
 		hitstop_timer = maxf(0.0, hitstop_timer - real_delta)
-		Engine.time_scale = combat.get_desired_time_scale(hitstop_timer)
+		Engine.time_scale = desired_scale
 		return
-	Engine.time_scale = combat.get_desired_time_scale(0.0)
+	Engine.time_scale = desired_scale
 
 	hero_sp[active_hero_id] = minf(_get_hero_stat(active_hero_id, "max_sp"), hero_sp[active_hero_id] + 9.0 * delta)
 	q_cd = maxf(0.0, q_cd - delta)
@@ -1262,6 +1294,7 @@ func _cast_skill_q(aim_dir: Vector2):
 	VfxStudio.spawn_azure_star_slash(fx_layer, player.global_position + aim_dir * 36.0, aim_dir.angle(), data["color"], 1.25)
 
 	if active_hero_id == "bai_yueling":
+		VfxStudio.spawn_ice_crescent_wave(fx_layer, player.global_position + aim_dir * 32.0, aim_dir.angle(), data["color"])
 		for ang in [-0.28, 0.0, 0.28]:
 			var d := aim_dir.rotated(ang)
 			_spawn_projectile(player.global_position + d * 28.0, d, int(atk * 1.35), data["vfx_attack"], data["color"], 720.0, true)
@@ -1304,6 +1337,8 @@ func _cast_skill_e():
 	_spawn_ring_vfx(player.global_position, data["color"], 210.0)
 	VfxStudio.spawn_frostbound_eruption(floor_layer, fx_layer, player.global_position, data["color"])
 	VfxStudio.spawn_galaxy_vortex(floor_layer, player.global_position, data["color"], 185.0)
+	if active_hero_id == "bai_yueling":
+		VfxStudio.spawn_ice_lotus_and_sword_halo(floor_layer, fx_layer, player.global_position, data["color"])
 
 	for i in range(6):
 		var ang := (float(i) / 6.0) * TAU
@@ -1371,6 +1406,11 @@ func _cast_skill_r():
 	VfxStudio.spawn_summoning_pillar(floor_layer, fx_layer, player.global_position, col)
 	_spawn_domain_vfx(player.global_position, data["vfx_domain"], 1.65)
 	_spawn_ring_vfx(player.global_position, col, 280.0)
+	if active_hero_id == "bai_yueling":
+		VfxStudio.spawn_myriad_ice_domain(floor_layer, fx_layer, player.global_position, col)
+		if bool(save_data.get("cutin_enabled", true)) and cutin_overlay:
+			if cutin_overlay.play("bai_yueling") and hitstop_timer <= 0.0:
+				Engine.time_scale = minf(Engine.time_scale, cutin_overlay.get_slowmo_scale())
 
 	var targets := enemies.duplicate()
 	for i in range(12):
@@ -1996,11 +2036,12 @@ func _refresh_hud():
 	if combo_panel:
 		var rdata: Dictionary = combat.get_rank_data()
 		combo_panel.visible = combat.combo_score > 0.0 or combat.perfect_dodge_crit_ready
-		combo_rank_label.text = "RANK %s · %d HITS" % [rdata["id"], combat.combo_hits]
+		combo_rank_label.text = "%s · %d HITS" % [rdata["id"], combat.combo_hits]
 		combo_rank_label.add_theme_color_override("font_color", rdata["color"])
-		combo_sub_label.text = "ดาเมจ +%d%% · หยก +%d%%" % [int(round(float(rdata["dmg_bonus"]) * 100.0)), int(round(float(rdata["jade_bonus"]) * 100.0))]
+		combo_sub_label.text = "+%d%% DMG · +%d%% หยก" % [int(round(float(rdata["dmg_bonus"]) * 100.0)), int(round(float(rdata["jade_bonus"]) * 100.0))]
 		combo_bar.value = combat.get_decay_ratio() * 100.0
 		dodge_ready_label.visible = combat.perfect_dodge_crit_ready
+	_refresh_cutin_btn()
 
 
 func _trigger_victory():
@@ -2452,6 +2493,22 @@ func _toggle_upgrade_modal():
 	upgrade_overlay.visible = not upgrade_overlay.visible
 	if upgrade_overlay.visible:
 		_rebuild_upgrade_list()
+		_refresh_cutin_btn()
+
+
+func _refresh_cutin_btn():
+	if not codex_cutin_btn:
+		return
+	var enabled := bool(save_data.get("cutin_enabled", true))
+	codex_cutin_btn.text = "★ คัตอินท่าไม้ตาย: เปิด" if enabled else "☆ คัตอินท่าไม้ตาย: ปิด"
+	codex_cutin_btn.add_theme_color_override("font_color", Color("#38bdf8") if enabled else Color("#94a3b8"))
+
+
+func _toggle_cutin():
+	save_data["cutin_enabled"] = not bool(save_data.get("cutin_enabled", true))
+	SaveManager.save_data(save_data, save_path)
+	_refresh_cutin_btn()
+	_show_banner("คัตอินท่าไม้ตาย: %s" % ("เปิด" if save_data["cutin_enabled"] else "ปิด"), 1.3)
 
 
 func _rebuild_upgrade_list():

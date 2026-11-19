@@ -125,12 +125,24 @@ static func build_modal(hud: CanvasLayer, sb: StyleBoxFlat, chapter: int, callba
 	tip_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
 	upg_root.add_child(tip_lbl)
 
+	var footer_row := HBoxContainer.new()
+	footer_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	footer_row.add_theme_constant_override("separation", 14)
+	upg_root.add_child(footer_row)
+
+	var cutin_btn := Button.new()
+	cutin_btn.text = "★ คัตอินท่าไม้ตาย: เปิด"
+	cutin_btn.custom_minimum_size = Vector2(210, 32)
+	cutin_btn.add_theme_font_size_override("font_size", 12)
+	if callbacks.has("toggle_cutin"):
+		cutin_btn.pressed.connect(callbacks["toggle_cutin"])
+	footer_row.add_child(cutin_btn)
+
 	var close_upg := Button.new()
 	close_upg.text = "ปิด [U]"
 	close_upg.custom_minimum_size = Vector2(140, 32)
-	close_upg.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	close_upg.pressed.connect(callbacks["toggle"])
-	upg_root.add_child(close_upg)
+	footer_row.add_child(close_upg)
 
 	return {
 		"overlay": overlay,
@@ -142,6 +154,7 @@ static func build_modal(hud: CanvasLayer, sb: StyleBoxFlat, chapter: int, callba
 		"party_box": party_box,
 		"chapters_box": chapters_box,
 		"chapter_btns": chapter_btns,
+		"cutin_btn": cutin_btn,
 	}
 
 

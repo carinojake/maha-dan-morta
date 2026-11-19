@@ -45,6 +45,7 @@ static func load_data(path: String = DEFAULT_PATH) -> Dictionary:
 		"party": HeroData.DEFAULT_PARTY.duplicate(),
 		"costumes": _default_costumes(),
 		"cleared_chapters": [],
+		"cutin_enabled": true,
 	}
 	if not FileAccess.file_exists(path):
 		return data
@@ -77,6 +78,7 @@ static func load_data(path: String = DEFAULT_PATH) -> Dictionary:
 			if ch >= 1 and ch <= 10 and not cc.has(ch):
 				cc.append(ch)
 		data["cleared_chapters"] = cc
+	data["cutin_enabled"] = bool(d.get("cutin_enabled", true))
 	return data
 
 

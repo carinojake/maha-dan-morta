@@ -12,6 +12,7 @@ fi
 
 TESTS=(
   "tests/test_ui_layout_regression.gd"
+  "tests/test_bai_yueling_cutin_e2e.gd"
   "tests/test_combat_depth_e2e.gd"
   "tests/test_dark_jade_e2e.gd"
   "tests/test_7heroes_costumes_e2e.gd"

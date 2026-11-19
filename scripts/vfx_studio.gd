@@ -340,3 +340,184 @@ static func spawn_boss_ultimate_vfx(floor_parent: Node2D, fx_parent: Node2D, pos
 			spawn_sky_sword_drop(fx_parent, pos + Vector2(cos(float(idx) * PI * 0.5) * 140.0, sin(float(idx) * PI * 0.5) * 95.0), rc)
 		spawn_summoning_pillar(floor_parent, fx_parent, pos, Color("#fde047"))
 		spawn_critical_star_burst(fx_parent, pos, Color("#fde047"), 1.9)
+
+
+# 7. คลื่นกระบี่จันทร์เสี้ยวเหมันต์ (Phase 1 — Bai Yueling Skill [Q])
+static func spawn_ice_crescent_wave(fx_parent: Node2D, pos: Vector2, angle: float, col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var bright := col.lightened(0.55)
+	var root := Node2D.new()
+	root.position = pos
+	root.rotation = angle
+	fx_parent.add_child(root)
+
+	for spec in [[58.0, 7.0, Color(col.r, col.g, col.b, 0.92), 0.0], [46.0, 3.2, Color(0.92, 0.98, 1.0, 0.95), 6.0]]:
+		var r: float = float(spec[0])
+		var w: float = float(spec[1])
+		var c: Color = spec[2]
+		var xoff: float = float(spec[3])
+		var arc := Line2D.new()
+		arc.material = add_mat
+		var pts := PackedVector2Array()
+		for i in range(15):
+			var t := lerpf(-1.05, 1.05, float(i) / 14.0)
+			pts.append(Vector2(cos(t) * r * 0.72 + xoff, sin(t) * r))
+		arc.points = pts
+		arc.width = w
+		arc.default_color = c
+		root.add_child(arc)
+
+	for i in range(6):
+		var shard := Polygon2D.new()
+		shard.material = add_mat
+		shard.polygon = PackedVector2Array([
+			Vector2(-7, 0), Vector2(0, -4), Vector2(10, 0), Vector2(0, 4)
+		])
+		shard.color = bright
+		var spread := lerpf(-44.0, 44.0, float(i) / 5.0)
+		shard.position = Vector2(randf_range(8.0, 26.0), spread)
+		root.add_child(shard)
+		var stw := shard.create_tween()
+		stw.tween_property(shard, "position", shard.position + Vector2(randf_range(38.0, 70.0), spread * 0.25), 0.26)
+
+	var fwd := Vector2(cos(angle), sin(angle)) * 95.0
+	var tw := root.create_tween()
+	tw.tween_property(root, "position", pos + fwd, 0.28).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(root, "scale", Vector2(1.38, 1.38), 0.28)
+	tw.parallel().tween_property(root, "modulate:a", 0.0, 0.28)
+	tw.tween_callback(root.queue_free)
+
+
+# 8. ดอกบัวเหมันต์ + วงแหวน 12 กระบี่ (Phase 2 — Bai Yueling Skill [E])
+static func spawn_ice_lotus_and_sword_halo(floor_parent: Node2D, fx_parent: Node2D, pos: Vector2, col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var bright := col.lightened(0.55)
+
+	# Blooming Ice Lotus on floor
+	var lotus := Node2D.new()
+	lotus.position = pos
+	lotus.scale = Vector2(0.18, 0.18)
+	floor_parent.add_child(lotus)
+
+	for layer in [[8, 128.0, 28.0, 0.0, Color(col.r, col.g, col.b, 0.65)], [8, 92.0, 22.0, PI / 8.0, Color(0.86, 0.97, 1.0, 0.78)]]:
+		var cnt: int = int(layer[0])
+		var plen: float = float(layer[1])
+		var pwid: float = float(layer[2])
+		var aoff: float = float(layer[3])
+		var pcol: Color = layer[4]
+		for i in range(cnt):
+			var a := (float(i) / float(cnt)) * TAU + aoff
+			var petal := Polygon2D.new()
+			petal.material = add_mat
+			petal.polygon = PackedVector2Array([
+				Vector2(0, 0),
+				Vector2(plen * 0.45, -pwid),
+				Vector2(plen, 0),
+				Vector2(plen * 0.45, pwid),
+			])
+			petal.color = pcol
+			petal.rotation = a
+			petal.scale = Vector2(1.0, 0.72)
+			lotus.add_child(petal)
+
+	var ltw := lotus.create_tween()
+	ltw.tween_property(lotus, "scale", Vector2(1.08, 0.78), 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	ltw.parallel().tween_property(lotus, "rotation", 0.35, 0.72)
+	ltw.tween_property(lotus, "modulate:a", 0.0, 0.55)
+	ltw.tween_callback(lotus.queue_free)
+
+	# 12-Sword Celestial Halo on fx_parent
+	var halo := Node2D.new()
+	halo.position = pos + Vector2(0.0, -24.0)
+	fx_parent.add_child(halo)
+	for i in range(12):
+		var a := (float(i) / 12.0) * TAU
+		var sword := Polygon2D.new()
+		sword.material = add_mat
+		sword.polygon = PackedVector2Array([
+			Vector2(0, -34), Vector2(5, -14), Vector2(2, 12), Vector2(7, 14), Vector2(2, 17), Vector2(2, 26),
+			Vector2(-2, 26), Vector2(-2, 17), Vector2(-7, 14), Vector2(-2, 12), Vector2(-5, -14)
+		])
+		sword.color = bright if i % 2 == 0 else col
+		sword.position = Vector2(cos(a), sin(a) * 0.76) * 92.0
+		sword.rotation = a + PI * 0.5
+		halo.add_child(sword)
+
+	var htw := halo.create_tween()
+	htw.tween_property(halo, "rotation", 1.1, 0.62)
+	htw.parallel().tween_property(halo, "scale", Vector2(1.22, 1.22), 0.62)
+	htw.parallel().tween_property(halo, "modulate:a", 0.0, 0.62)
+	htw.tween_callback(halo.queue_free)
+
+
+# 9. แดนค่ายกลอักขระ + เสาน้ำแข็งหมื่นกระบี่ (Phases 3-4 — Bai Yueling Skill [R])
+static func spawn_myriad_ice_domain(floor_parent: Node2D, fx_parent: Node2D, pos: Vector2, col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var bright := col.lightened(0.58)
+
+	# Celestial Rune Array on floor
+	var array_node := Node2D.new()
+	array_node.position = pos
+	floor_parent.add_child(array_node)
+
+	for spec in [[220.0, 155.0, 4.0, col], [165.0, 116.0, 2.5, bright]]:
+		var ring := Line2D.new()
+		ring.material = add_mat
+		var rpts := _make_ellipse(float(spec[0]), float(spec[1]), 40)
+		rpts.append(rpts[0])
+		ring.points = rpts
+		ring.width = float(spec[2])
+		ring.default_color = spec[3]
+		array_node.add_child(ring)
+
+	var star := Line2D.new()
+	star.material = add_mat
+	var spts := _make_star_poly(165.0, 95.0, 8)
+	for idx in range(spts.size()):
+		spts[idx] = Vector2(spts[idx].x, spts[idx].y * 0.70)
+	spts.append(spts[0])
+	star.points = spts
+	star.width = 2.4
+	star.default_color = Color(0.92, 0.98, 1.0, 0.90)
+	array_node.add_child(star)
+
+	for i in range(16):
+		var a := (float(i) / 16.0) * TAU
+		var tick := Line2D.new()
+		tick.material = add_mat
+		tick.points = PackedVector2Array([
+			Vector2(cos(a) * 168.0, sin(a) * 118.0),
+			Vector2(cos(a) * 218.0, sin(a) * 153.0),
+		])
+		tick.width = 2.6
+		tick.default_color = bright
+		array_node.add_child(tick)
+
+	var atw := array_node.create_tween()
+	atw.tween_property(array_node, "rotation", 0.55, 1.25)
+	atw.tween_property(array_node, "modulate:a", 0.0, 0.25)
+	atw.tween_callback(array_node.queue_free)
+
+	# 10 Perimeter Jagged Ice Crystal Pillars
+	var pillars := Node2D.new()
+	pillars.position = pos
+	fx_parent.add_child(pillars)
+	for i in range(10):
+		var a := (float(i) / 10.0) * TAU
+		var spire := Polygon2D.new()
+		spire.material = add_mat
+		spire.polygon = PackedVector2Array([
+			Vector2(-15, 6), Vector2(-11, -68), Vector2(-3, -115), Vector2(8, -82), Vector2(15, 6), Vector2(0, 12)
+		])
+		spire.color = Color(bright.r, bright.g, bright.b, 0.85) if i % 2 == 0 else Color(col.r, col.g, col.b, 0.88)
+		spire.position = Vector2(cos(a) * 190.0, sin(a) * 132.0)
+		spire.scale = Vector2(1.0, 0.08)
+		pillars.add_child(spire)
+		var ptw := spire.create_tween()
+		ptw.tween_interval(float(i) * 0.03)
+		ptw.tween_property(spire, "scale", Vector2(1.0, 1.0), 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+	var ftw := pillars.create_tween()
+	ftw.tween_interval(0.95)
+	ftw.tween_property(pillars, "modulate:a", 0.0, 0.35)
+	ftw.tween_callback(pillars.queue_free)
