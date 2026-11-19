@@ -9,6 +9,7 @@ const MonsterData = preload("res://scripts/monster_data.gd")
 const CodexUI = preload("res://scripts/codex_ui.gd")
 const CombatSystem = preload("res://scripts/combat_system.gd")
 const CutinOverlay = preload("res://scripts/cutin_overlay.gd")
+const MobileControlsLandscape = preload("res://scripts/mobile_controls_landscape.gd")
 const TILE_SIZE := 64
 const ROOM_STRIDE := ChapterData.ROOM_STRIDE
 const HERO_SCALE := Vector2(0.42, 0.42)
@@ -134,6 +135,11 @@ var combo_bar: ProgressBar
 var dodge_ready_label: Label
 var cutin_overlay: Control
 var codex_cutin_btn: Button
+var bot_center_row: HBoxContainer
+var mobile_controls: Control
+var touch_btn: Button
+var _touch_attack_queued: bool = false
+var _touch_dash_queued: bool = false
 
 
 func _exit_tree():
@@ -515,6 +521,7 @@ func _build_hud():
 	bv.add_child(boss_bar)
 
 	var bot_center := HBoxContainer.new()
+	bot_center_row = bot_center
 	bot_center.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	bot_center.position = Vector2(0, -82)
 	bot_center.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -561,7 +568,7 @@ func _build_hud():
 	var top_right := VBoxContainer.new()
 	top_right.anchor_left = 1.0
 	top_right.anchor_right = 1.0
-	top_right.offset_left = -332.0
+	top_right.offset_left = -412.0
 	top_right.offset_right = -16.0
 	top_right.offset_top = 16.0
 	top_right.offset_bottom = 260.0
@@ -609,6 +616,13 @@ func _build_hud():
 	help_btn.add_theme_font_size_override("font_size", 11)
 	help_btn.pressed.connect(_toggle_help_overlay)
 	btn_row.add_child(help_btn)
+
+	touch_btn = Button.new()
+	touch_btn.text = "📱 ทัช"
+	touch_btn.custom_minimum_size = Vector2(68, 26)
+	touch_btn.add_theme_font_size_override("font_size", 11)
+	touch_btn.pressed.connect(func(): _set_touch_mode(not mobile_controls.visible))
+	btn_row.add_child(touch_btn)
 
 	var combo_sb := StyleBoxFlat.new()
 	combo_sb.bg_color = Color(0.05, 0.07, 0.11, 0.78)
@@ -663,33 +677,34 @@ func _build_hud():
 	cutin_overlay = CutinOverlay.new()
 	hud.add_child(cutin_overlay)
 
-	var codex_refs := CodexUI.build_modal(hud, sb, chapter, {
-		"set_tab": _set_codex_tab,
-		"jump_chapter": _jump_to_chapter,
-		"warp_room": _warp_to_room,
-		"boss_rush": _start_boss_rush,
-		"toggle": _toggle_upgrade_modal,
-		"toggle_cutin": _toggle_cutin,
-	})
-	upgrade_overlay = codex_refs["overlay"]
-	upgrade_jade_lbl = codex_refs["jade_lbl"]
-	codex_tab_btns = codex_refs["tab_btns"]
-	codex_upgrade_scroll = codex_refs["upg_scroll"]
-	upgrade_list_box = codex_refs["upg_list"]
-	codex_party_scroll = codex_refs["party_scroll"]
-	codex_party_box = codex_refs["party_box"]
-	codex_chapters_box = codex_refs["chapters_box"]
-	codex_chapter_btns = codex_refs["chapter_btns"]
-	codex_cutin_btn = codex_refs["cutin_btn"]
-	_refresh_cutin_btn()
-	_set_codex_tab(0)
-
-	help_overlay = CodexUI.build_help_overlay(hud, sb, _toggle_help_overlay)
-	help_overlay.visible = (DisplayServer.get_name() != "headless") and not bool(Globals.get_meta("skip_intro", false)) and not boss_rush_mode
-
-	var boon_refs := CodexUI.build_boon_overlay(hud, sb, _pick_boon)
-	boon_overlay = boon_refs["overlay"]
-	boon_btns = boon_refs["btns"]
+	mobile_controls = MobileControlsLandscape.new()
+	hud.add_child(mobile_controls)
+	mobile_controls.attack_pressed.connect(func():
+		if not _is_modal_open():
+			_touch_attack_queued = true
+	)
+	mobile_controls.dash_pressed.connect(func():
+		if not _is_modal_open():
+			_touch_dash_queued = true
+	)
+	mobile_controls.skill_q_pressed.connect(func():
+		if not _is_modal_open():
+			_cast_skill_q(_get_auto_aim_dir())
+	)
+	mobile_controls.skill_e_pressed.connect(func():
+		if not _is_modal_open():
+			_cast_skill_e()
+	)
+	mobile_controls.skill_r_pressed.connect(func():
+		if not _is_modal_open():
+			_cast_skill_r()
+	)
+	mobile_controls.auto_toggled.connect(func():
+		auto_attack_enabled = not auto_attack_enabled
+		_show_banner("โหมดตีอัตโนมัติ: %s" % ("เปิด (ON)" if auto_attack_enabled else "ปิด (OFF)"), 1.2)
+		_refresh_hud()
+	)
+	mobile_controls.codex_pressed.connect(_toggle_upgrade_modal)
 
 	end_overlay = ColorRect.new()
 	end_overlay.color = Color(0.03, 0.04, 0.06, 0.82)
@@ -720,6 +735,73 @@ func _build_hud():
 	end_upgrade_btn.custom_minimum_size = Vector2(280, 40)
 	end_upgrade_btn.pressed.connect(_toggle_upgrade_modal)
 	end_box.add_child(end_upgrade_btn)
+
+	var codex_refs := CodexUI.build_modal(hud, sb, chapter, {
+		"set_tab": _set_codex_tab,
+		"jump_chapter": _jump_to_chapter,
+		"warp_room": _warp_to_room,
+		"boss_rush": _start_boss_rush,
+		"toggle": _toggle_upgrade_modal,
+		"toggle_cutin": _toggle_cutin,
+	})
+	upgrade_overlay = codex_refs["overlay"]
+	upgrade_jade_lbl = codex_refs["jade_lbl"]
+	codex_tab_btns = codex_refs["tab_btns"]
+	codex_upgrade_scroll = codex_refs["upg_scroll"]
+	upgrade_list_box = codex_refs["upg_list"]
+	codex_party_scroll = codex_refs["party_scroll"]
+	codex_party_box = codex_refs["party_box"]
+	codex_chapters_box = codex_refs["chapters_box"]
+	codex_chapter_btns = codex_refs["chapter_btns"]
+	codex_cutin_btn = codex_refs["cutin_btn"]
+	_refresh_cutin_btn()
+	_set_codex_tab(0)
+
+	help_overlay = CodexUI.build_help_overlay(hud, sb, _toggle_help_overlay)
+	help_overlay.visible = (DisplayServer.get_name() != "headless") and not bool(Globals.get_meta("skip_intro", false)) and not boss_rush_mode
+
+	var boon_refs := CodexUI.build_boon_overlay(hud, sb, _pick_boon)
+	boon_overlay = boon_refs["overlay"]
+	boon_btns = boon_refs["btns"]
+
+	_set_touch_mode(_detect_touch_device())
+	if get_viewport():
+		get_viewport().size_changed.connect(_on_viewport_resized)
+	_on_viewport_resized()
+
+
+func _detect_touch_device() -> bool:
+	if DisplayServer.is_touchscreen_available():
+		return true
+	if OS.has_feature("web") and Engine.has_singleton("JavaScriptBridge"):
+		var has_touch := bool(JavaScriptBridge.eval("('ontouchstart' in window) || (navigator.maxTouchPoints > 0)", true))
+		return has_touch
+	return false
+
+
+func _set_touch_mode(enabled: bool):
+	if mobile_controls:
+		mobile_controls.visible = enabled
+	if bot_center_row:
+		bot_center_row.visible = not enabled
+	if touch_btn:
+		touch_btn.text = "📱 ทัช: ON" if enabled else "📱 ทัช"
+
+
+func _on_viewport_resized():
+	if mobile_controls and get_viewport():
+		var vr := get_viewport().get_visible_rect().size
+		if vr.x > 1.0 and vr.y > 1.0:
+			mobile_controls.layout_for_viewport(vr)
+
+
+func _is_modal_open() -> bool:
+	return game_over or victory or (upgrade_overlay != null and upgrade_overlay.visible) or (help_overlay != null and help_overlay.visible) or (boon_overlay != null and boon_overlay.visible)
+
+
+func _input(event: InputEvent):
+	if event is InputEventScreenTouch and event.pressed and mobile_controls and not mobile_controls.visible:
+		_set_touch_mode(true)
 
 
 func _make_bar(fill_color: Color, w: int, h: int) -> ProgressBar:
@@ -1051,6 +1133,8 @@ func _get_auto_aim_dir() -> Vector2:
 
 
 func _process(delta: float):
+	if mobile_controls:
+		mobile_controls.set_active(not _is_modal_open())
 	if game_over or victory:
 		if Input.is_key_pressed(KEY_ENTER):
 			_on_end_action_pressed()
@@ -1138,8 +1222,27 @@ func _physics_process(delta: float):
 		float(Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN)) - float(Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP))
 	).normalized()
 
+	if mobile_controls and mobile_controls.visible and mobile_controls.joy_vector.length() > 0.08:
+		move_vec = mobile_controls.joy_vector
+
+	var data: Dictionary = HeroData.HEROES[active_hero_id]
+	if move_vec.length() <= 0.08 and auto_attack_enabled and mobile_controls and mobile_controls.visible:
+		var nearest_e := _get_nearest_enemy(900.0)
+		if nearest_e != null:
+			var to_e := nearest_e.global_position - player.global_position
+			var want_dist := 250.0 if bool(data["is_ranged"]) else maxf(85.0, float(data["range"]) * 0.78)
+			if to_e.length() > want_dist:
+				move_vec = to_e.normalized()
+		elif enemies.size() == 0 and heal_orbs.size() > 0:
+			for orb in heal_orbs:
+				if is_instance_valid(orb):
+					var to_o: Vector2 = orb.global_position - player.global_position
+					if to_o.length() > 16.0:
+						move_vec = to_o.normalized()
+					break
+
 	if move_vec.length() > 0.1:
-		facing_dir = move_vec
+		facing_dir = move_vec.normalized()
 
 	var aim_dir := _get_auto_aim_dir()
 	var face_vec := aim_dir if _get_nearest_enemy(350.0) != null else facing_dir
@@ -1149,8 +1252,10 @@ func _physics_process(delta: float):
 		player_sprite.flip_h = false
 
 	var sp_now := Input.is_key_pressed(KEY_SPACE)
-	if sp_now and not _prev_space and dash_cooldown <= 0.0 and dash_timer <= 0.0:
-		dash_dir = move_vec if move_vec.length() > 0.1 else facing_dir
+	var sp_trigger := (sp_now and not _prev_space) or _touch_dash_queued
+	_touch_dash_queued = false
+	if sp_trigger and dash_cooldown <= 0.0 and dash_timer <= 0.0:
+		dash_dir = move_vec.normalized() if move_vec.length() > 0.1 else facing_dir
 		dash_timer = 0.18
 		dash_cooldown = 0.80
 		invuln_timer = 0.28
@@ -1176,10 +1281,10 @@ func _physics_process(delta: float):
 		return
 
 	var f_now := Input.is_key_pressed(KEY_F)
-	var f_just := f_now and not _prev_f
+	var f_just := (f_now and not _prev_f) or _touch_attack_queued
+	_touch_attack_queued = false
 	_prev_f = f_now
 
-	var data: Dictionary = HeroData.HEROES[active_hero_id]
 	var auto_trigger := false
 	if auto_attack_enabled:
 		var nearest := _get_nearest_enemy(float(data["range"]) + 20.0)
@@ -2065,6 +2170,8 @@ func _refresh_hud():
 	r_val_lbl.text = ("%.1fs" % r_cd) if r_cd > 0.0 else "พร้อมใช้"
 	dash_val_lbl.text = ("%.1fs" % dash_cooldown) if dash_cooldown > 0.0 else "พร้อมใช้"
 	auto_val_lbl.text = "ออโต้: ON" if auto_attack_enabled else "ออโต้: OFF"
+	if mobile_controls:
+		mobile_controls.update_state(data, q_cd, e_cd, r_cd, dash_cooldown, float(hero_sp[active_hero_id]), auto_attack_enabled)
 	if jade_label:
 		jade_label.text = "💎 หยกปราณ: %d" % int(save_data.get("spirit_jade", 0))
 	if diff_btn:
@@ -2490,6 +2597,8 @@ func _set_codex_tab(idx: int):
 func _toggle_help_overlay():
 	if help_overlay:
 		help_overlay.visible = not help_overlay.visible
+		if not help_overlay.visible and sfx and sfx.has_method("resume_audio"):
+			sfx.resume_audio()
 
 
 func _open_boon_picker():
@@ -2528,6 +2637,7 @@ func _start_boss_rush():
 func _toggle_upgrade_modal():
 	upgrade_overlay.visible = not upgrade_overlay.visible
 	if upgrade_overlay.visible:
+		upgrade_overlay.move_to_front()
 		_rebuild_upgrade_list()
 		_refresh_cutin_btn()
 

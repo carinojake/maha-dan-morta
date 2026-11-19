@@ -55,6 +55,14 @@ func set_bgm_mode(is_boss: bool):
 	_bgm_player.play()
 
 
+func resume_audio():
+	if is_instance_valid(_bgm_player):
+		_bgm_player.stream = _bgm_boss if _bgm_is_boss else _bgm_normal
+		if not _bgm_player.playing:
+			_bgm_player.play()
+	play_sfx("dodge")
+
+
 func _exit_tree():
 	# Release active AudioStreamPlaybackWAV & AudioStreamWAV references on scene exit.
 	for p in _players:
