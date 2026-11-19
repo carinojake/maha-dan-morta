@@ -46,6 +46,7 @@ static func load_data(path: String = DEFAULT_PATH) -> Dictionary:
 		"costumes": _default_costumes(),
 		"cleared_chapters": [],
 		"cutin_enabled": true,
+		"cutin_mode": "full",
 	}
 	if not FileAccess.file_exists(path):
 		return data
@@ -79,6 +80,12 @@ static func load_data(path: String = DEFAULT_PATH) -> Dictionary:
 				cc.append(ch)
 		data["cleared_chapters"] = cc
 	data["cutin_enabled"] = bool(d.get("cutin_enabled", true))
+	var cmode := str(d.get("cutin_mode", ""))
+	# Saves from before the 3-mode setting only carried an on/off flag.
+	if not (cmode in ["full", "boss", "skip"]):
+		cmode = "full" if data["cutin_enabled"] else "skip"
+	data["cutin_mode"] = cmode
+	data["cutin_enabled"] = cmode != "skip"
 	return data
 
 

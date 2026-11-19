@@ -25,6 +25,8 @@ func _process(_delta: float) -> bool:
 		_scene._cast_skill_q(Vector2.RIGHT)
 		_scene._cast_skill_e()
 		_scene._cast_skill_r()
+		assert(_scene.cutin_overlay.is_fullscreen_playing(), "[R] must open full-screen Cut-in")
+		_scene.cutin_overlay.skip()
 		_scene._switch_hero("ye_shangye", true)
 		assert(_scene.active_hero_id == "ye_shangye", "Should switch to Ye Shangye")
 		_scene._switch_hero("song_ren", true)

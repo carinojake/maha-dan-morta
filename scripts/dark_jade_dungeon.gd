@@ -9,6 +9,17 @@ const MonsterData = preload("res://scripts/monster_data.gd")
 const CodexUI = preload("res://scripts/codex_ui.gd")
 const CombatSystem = preload("res://scripts/combat_system.gd")
 const CutinOverlay = preload("res://scripts/cutin_overlay.gd")
+const CUTIN_MODES := ["full", "boss", "skip"]
+const CUTIN_MODE_LABELS := {
+	"full": "★ คัตอิน: เต็มจอ",
+	"boss": "♛ คัตอิน: เฉพาะบอส",
+	"skip": "☆ คัตอิน: ข้าม",
+}
+const CUTIN_MODE_BANNERS := {
+	"full": "★ ท่าไม้ตาย: เล่นคลิปเต็มจอทุกครั้ง",
+	"boss": "♛ ท่าไม้ตาย: เต็มจอเฉพาะเจอบอส (ปกติเป็นการ์ดเล็ก)",
+	"skip": "☆ ท่าไม้ตาย: ข้ามคลิปอัตโนมัติ",
+}
 const MobileControlsLandscape = preload("res://scripts/mobile_controls_landscape.gd")
 const TILE_SIZE := 64
 const ROOM_STRIDE := ChapterData.ROOM_STRIDE
@@ -134,6 +145,7 @@ var combo_sub_label: Label
 var combo_bar: ProgressBar
 var dodge_ready_label: Label
 var cutin_overlay: Control
+var pending_ult_hero: String = ""
 var codex_cutin_btn: Button
 var bot_center_row: HBoxContainer
 var mobile_controls: Control
@@ -676,6 +688,7 @@ func _build_hud():
 
 	cutin_overlay = CutinOverlay.new()
 	hud.add_child(cutin_overlay)
+	cutin_overlay.fullscreen_finished.connect(_on_cutin_fullscreen_finished)
 
 	mobile_controls = MobileControlsLandscape.new()
 	hud.add_child(mobile_controls)
@@ -796,7 +809,7 @@ func _on_viewport_resized():
 
 
 func _is_modal_open() -> bool:
-	return game_over or victory or (upgrade_overlay != null and upgrade_overlay.visible) or (help_overlay != null and help_overlay.visible) or (boon_overlay != null and boon_overlay.visible)
+	return game_over or victory or (upgrade_overlay != null and upgrade_overlay.visible) or (help_overlay != null and help_overlay.visible) or (boon_overlay != null and boon_overlay.visible) or _is_cutin_fullscreen()
 
 
 func _input(event: InputEvent):
@@ -849,6 +862,8 @@ func _make_skill_pill(title: String, col: Color) -> PanelContainer:
 
 
 func _switch_hero(hid: String, with_vfx: bool):
+	if _is_cutin_fullscreen():
+		return
 	if hero_hp[hid] <= 0.0:
 		return
 	var prev_hid := active_hero_id
@@ -1156,6 +1171,14 @@ func _process(delta: float):
 			_pick_boon(1)
 		elif Input.is_key_pressed(KEY_3):
 			_pick_boon(2)
+		return
+
+	if _is_cutin_fullscreen():
+		if mobile_controls:
+			mobile_controls.set_active(false)
+		var clip_delta := delta / maxf(Engine.time_scale, 0.05)
+		Engine.time_scale = 1.0
+		cutin_overlay.tick(clip_delta)
 		return
 
 	var ku := Input.is_key_pressed(KEY_U)
@@ -1510,10 +1533,31 @@ func _cast_skill_e():
 
 func _cast_skill_r():
 	var data: Dictionary = HeroData.HEROES[active_hero_id]
-	if r_cd > 0.0 or hero_sp[active_hero_id] < data["r_cost"]:
+	if pending_ult_hero != "" or r_cd > 0.0 or hero_sp[active_hero_id] < data["r_cost"]:
 		return
 	hero_sp[active_hero_id] -= data["r_cost"]
 	r_cd = 12.0 * (0.80 if active_boons.has("swift_qi") else 1.0)
+
+	var mode := _get_cutin_mode()
+	var has_clip: bool = cutin_overlay != null and cutin_overlay.has_cutin(active_hero_id)
+	if has_clip and _should_play_fullscreen_cutin(mode):
+		if cutin_overlay.play(active_hero_id, true):
+			# Combat is frozen (see _is_cutin_fullscreen in _process); damage is
+			# released by _on_cutin_fullscreen_finished so the clip lands the hit.
+			pending_ult_hero = active_hero_id
+			invuln_timer = maxf(invuln_timer, 1.0)
+			Engine.time_scale = 1.0
+			if mobile_controls:
+				mobile_controls.set_active(false)
+			return
+
+	_release_ultimate(data)
+	if has_clip and mode != "skip":
+		if cutin_overlay.play(active_hero_id, false) and hitstop_timer <= 0.0:
+			Engine.time_scale = minf(Engine.time_scale, cutin_overlay.get_slowmo_scale())
+
+
+func _release_ultimate(data: Dictionary):
 	last_skill_er_timer = 2.5
 	pose_override_key = "ultimate"
 	pose_override_timer = 0.55
@@ -1548,10 +1592,6 @@ func _cast_skill_r():
 		VfxStudio.spawn_nine_heavens_spear_judgment(floor_layer, fx_layer, player.global_position, col)
 	elif active_hero_id == "zhao_yan":
 		VfxStudio.spawn_primordial_cauldron_nova(floor_layer, fx_layer, player.global_position, col)
-
-	if bool(save_data.get("cutin_enabled", true)) and cutin_overlay and cutin_overlay.has_cutin(active_hero_id):
-		if cutin_overlay.play(active_hero_id) and hitstop_timer <= 0.0:
-			Engine.time_scale = minf(Engine.time_scale, cutin_overlay.get_slowmo_scale())
 
 	var targets := enemies.duplicate()
 	for i in range(12):
@@ -2642,19 +2682,61 @@ func _toggle_upgrade_modal():
 		_refresh_cutin_btn()
 
 
+func _is_cutin_fullscreen() -> bool:
+	return cutin_overlay != null and cutin_overlay.is_fullscreen_playing()
+
+
+func _is_boss_present() -> bool:
+	for e in enemies:
+		if not is_instance_valid(e):
+			continue
+		var def: Dictionary = MONSTER_DEFS[str(e.get_meta("kind"))]
+		if def["is_boss"] or def.get("is_miniboss", false):
+			return true
+	return false
+
+
+func _get_cutin_mode() -> String:
+	var m := str(save_data.get("cutin_mode", ""))
+	if m in CUTIN_MODES:
+		return m
+	return "full" if bool(save_data.get("cutin_enabled", true)) else "skip"
+
+
+func _should_play_fullscreen_cutin(mode: String) -> bool:
+	if mode == "full":
+		return true
+	if mode == "boss":
+		return _is_boss_present()
+	return false
+
+
+func _on_cutin_fullscreen_finished(_hid: String):
+	if pending_ult_hero == "":
+		return
+	pending_ult_hero = ""
+	if game_over or victory:
+		return
+	invuln_timer = maxf(invuln_timer, 1.0)
+	_release_ultimate(HeroData.HEROES[active_hero_id])
+
+
 func _refresh_cutin_btn():
 	if not codex_cutin_btn:
 		return
-	var enabled := bool(save_data.get("cutin_enabled", true))
-	codex_cutin_btn.text = "★ คัตอินท่าไม้ตาย: เปิด" if enabled else "☆ คัตอินท่าไม้ตาย: ปิด"
-	codex_cutin_btn.add_theme_color_override("font_color", Color("#38bdf8") if enabled else Color("#94a3b8"))
+	var mode := _get_cutin_mode()
+	codex_cutin_btn.text = str(CUTIN_MODE_LABELS[mode])
+	codex_cutin_btn.add_theme_color_override("font_color", Color("#94a3b8") if mode == "skip" else (Color("#fbbf24") if mode == "boss" else Color("#38bdf8")))
 
 
 func _toggle_cutin():
-	save_data["cutin_enabled"] = not bool(save_data.get("cutin_enabled", true))
+	var idx := CUTIN_MODES.find(_get_cutin_mode())
+	var mode: String = CUTIN_MODES[(idx + 1) % CUTIN_MODES.size()]
+	save_data["cutin_mode"] = mode
+	save_data["cutin_enabled"] = mode != "skip"
 	SaveManager.save_data(save_data, save_path)
 	_refresh_cutin_btn()
-	_show_banner("คัตอินท่าไม้ตาย: %s" % ("เปิด" if save_data["cutin_enabled"] else "ปิด"), 1.3)
+	_show_banner(str(CUTIN_MODE_BANNERS[mode]), 1.6)
 
 
 func _rebuild_upgrade_list():

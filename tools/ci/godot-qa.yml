@@ -1,0 +1,45 @@
+name: Godot Headless QA
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e-qa:
+    runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: "4.3-stable"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache Godot headless binary
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/godot-ci
+          key: godot-linux-${{ env.GODOT_VERSION }}
+
+      - name: Install Godot ${{ env.GODOT_VERSION }}
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.cache/godot-ci
+          ZIP_NAME="Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          URL="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/${ZIP_NAME}"
+          curl -fsSL "$URL" -o "/tmp/${ZIP_NAME}"
+          unzip -q "/tmp/${ZIP_NAME}" -d ~/.cache/godot-ci
+          mv ~/.cache/godot-ci/Godot_v${GODOT_VERSION}_linux.x86_64 ~/.cache/godot-ci/godot
+          chmod +x ~/.cache/godot-ci/godot
+
+      - name: Import Godot project assets
+        run: |
+          ~/.cache/godot-ci/godot --headless --path . --import --quit || true
+
+      - name: Run full headless E2E & UI layout QA suite
+        env:
+          GODOT_BIN: ${{ runner.home }}/.cache/godot-ci/godot
+        run: |
+          chmod +x tools/run_qa.sh
+          ./tools/run_qa.sh
