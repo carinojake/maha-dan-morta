@@ -28,3 +28,12 @@ gdscript/warnings/return_value_discarded=false
 window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
+
+[gui]
+
+theme/custom_font="res://fonts/game_font.tres"
+
+[rendering]
+
+renderer/rendering_method.web="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true
