@@ -13,13 +13,16 @@ OUT="$4"
 
 mkdir -p "$(dirname "$OUT")"
 
-# Extract 30 frames (fps=12 over 2.5s = 30 frames) into a 6x5 sprite sheet at 240x426 per frame (1440x2130)
+# Compute dynamic fps so all 30 tiles (6x5) fill cleanly across DUR without trailing black cells
+FPS="$(python3 -c "print(f'{30.5 / float(\"$DUR\"):.4f}')")"
+
+# Extract 30 frames into a 6x5 sprite sheet at 240x426 per frame (1440x2130)
 ffmpeg -y -v error -ss "$START" -t "$DUR" -i "$IN" \
-  -vf "fps=12,scale=240:426:flags=lanczos,tile=6x5" \
+  -vf "fps=${FPS},scale=240:426:flags=lanczos,tile=6x5" \
   -frames:v 1 -q:v 4 "${OUT}_sheet.jpg"
 
 # Extract mono 22050Hz 16-bit WAV audio with gentle fade-in/out
-FADE_OUT_START="$(python3 -c "print(max(0.0, float('$DUR') - 0.30))")"
+FADE_OUT_START="$(python3 -c "print(f'{max(0.0, float(\"$DUR\") - 0.30):.2f}')")"
 ffmpeg -y -v error -ss "$START" -t "$DUR" -i "$IN" \
   -vn -ac 1 -ar 22050 \
   -af "afade=t=in:st=0:d=0.08,afade=t=out:st=${FADE_OUT_START}:d=0.30" \

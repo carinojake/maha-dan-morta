@@ -521,3 +521,419 @@ static func spawn_myriad_ice_domain(floor_parent: Node2D, fx_parent: Node2D, pos
 	ftw.tween_interval(0.95)
 	ftw.tween_property(pillars, "modulate:a", 0.0, 0.35)
 	ftw.tween_callback(pillars.queue_free)
+
+
+# 10. แพรแดง + เข็มปราณทอง (Hei Shan Skill [Q])
+static func spawn_crimson_ribbon_needles(fx_parent: Node2D, pos: Vector2, angle: float, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var root := Node2D.new()
+	root.position = pos
+	root.rotation = angle
+	fx_parent.add_child(root)
+
+	var ribbon := Line2D.new()
+	ribbon.material = add_mat
+	var rpts := PackedVector2Array()
+	for i in range(16):
+		var t := float(i) / 15.0
+		var ang := lerpf(-1.15, 1.15, t)
+		rpts.append(Vector2(cos(ang) * 44.0 + sin(t * TAU) * 8.0, sin(ang) * 58.0))
+	ribbon.points = rpts
+	ribbon.width = 8.0
+	ribbon.default_color = Color("#e11d48")
+	root.add_child(ribbon)
+
+	for spread in [-0.28, 0.0, 0.28]:
+		var needle := Polygon2D.new()
+		needle.material = add_mat
+		needle.polygon = PackedVector2Array([
+			Vector2(-10, -2.5), Vector2(22, 0), Vector2(-10, 2.5), Vector2(-4, 0)
+		])
+		needle.color = Color("#fde047")
+		needle.position = Vector2(18.0, float(spread) * 32.0)
+		needle.rotation = float(spread)
+		root.add_child(needle)
+		var ntw := needle.create_tween()
+		var ndir := Vector2(cos(float(spread)), sin(float(spread)))
+		ntw.tween_property(needle, "position", needle.position + ndir * 130.0, 0.26).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+	var tw := root.create_tween()
+	tw.tween_property(root, "scale", Vector2(1.22, 1.22), 0.28)
+	tw.parallel().tween_property(root, "modulate:a", 0.0, 0.28)
+	tw.tween_callback(root.queue_free)
+
+
+# 11. โดมคุ้มกันอักขระทอง + เถาวัลย์พฤกษา (Hei Shan Skill [E])
+static func spawn_golden_vine_sanctuary(floor_parent: Node2D, fx_parent: Node2D, pos: Vector2, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var gold := Color("#fbbf24")
+	var bright := Color("#fef08a")
+
+	var seal := Node2D.new()
+	seal.position = pos
+	floor_parent.add_child(seal)
+
+	var ring := Line2D.new()
+	ring.material = add_mat
+	var rpts := _make_ellipse(175.0, 125.0, 36)
+	rpts.append(rpts[0])
+	ring.points = rpts
+	ring.width = 3.5
+	ring.default_color = gold
+	seal.add_child(ring)
+
+	var stw := seal.create_tween()
+	stw.tween_property(seal, "rotation", 0.45, 0.75)
+	stw.parallel().tween_property(seal, "modulate:a", 0.0, 0.75)
+	stw.tween_callback(seal.queue_free)
+
+	var dome := Node2D.new()
+	dome.position = pos
+	fx_parent.add_child(dome)
+
+	var dome_fill := Polygon2D.new()
+	dome_fill.material = add_mat
+	var dpts := PackedVector2Array()
+	for i in range(25):
+		var a := lerpf(PI, TAU, float(i) / 24.0)
+		dpts.append(Vector2(cos(a) * 145.0, sin(a) * 125.0 + 18.0))
+	dpts.append(Vector2(145.0, 36.0))
+	dpts.append(Vector2(-145.0, 36.0))
+	dome_fill.polygon = dpts
+	dome_fill.color = Color(gold.r, gold.g, gold.b, 0.24)
+	dome.add_child(dome_fill)
+
+	var rim := Line2D.new()
+	rim.material = add_mat
+	var rim_pts := PackedVector2Array()
+	for i in range(25):
+		var a := lerpf(PI, TAU, float(i) / 24.0)
+		rim_pts.append(Vector2(cos(a) * 145.0, sin(a) * 125.0 + 18.0))
+	rim.points = rim_pts
+	rim.width = 3.2
+	rim.default_color = bright
+	dome.add_child(rim)
+
+	for i in range(6):
+		var side := -1.0 if i % 2 == 0 else 1.0
+		var x_base := lerpf(-110.0, 110.0, float(i) / 5.0)
+		var vine := Line2D.new()
+		vine.material = add_mat
+		var vpts := PackedVector2Array()
+		for s in range(12):
+			var t := float(s) / 11.0
+			vpts.append(Vector2(x_base + sin(t * TAU * 1.5) * 18.0 * side, lerpf(16.0, -112.0, t)))
+		vine.points = vpts
+		vine.width = 3.6
+		vine.default_color = gold if i % 2 == 0 else bright
+		dome.add_child(vine)
+
+	dome.scale = Vector2(0.45, 0.45)
+	var dtw := dome.create_tween()
+	dtw.tween_property(dome, "scale", Vector2(1.0, 1.0), 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	dtw.tween_interval(0.32)
+	dtw.tween_property(dome, "modulate:a", 0.0, 0.24)
+	dtw.tween_callback(dome.queue_free)
+
+
+# 12. สวนสวรรค์ร้อยบุปผา + จิ้งจอกเก้าหาง (Hei Shan Skill [R])
+static func spawn_ninetail_blossom_domain(floor_parent: Node2D, fx_parent: Node2D, pos: Vector2, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var gold := Color("#fbbf24")
+	var bright := Color("#fef08a")
+
+	var domain := Node2D.new()
+	domain.position = pos
+	floor_parent.add_child(domain)
+
+	for spec in [[225.0, 158.0, 4.0, gold], [168.0, 118.0, 2.5, bright]]:
+		var ring := Line2D.new()
+		ring.material = add_mat
+		var rpts := _make_ellipse(float(spec[0]), float(spec[1]), 40)
+		rpts.append(rpts[0])
+		ring.points = rpts
+		ring.width = float(spec[2])
+		ring.default_color = spec[3]
+		domain.add_child(ring)
+
+	# Golden blooming spirit tree canopy at center
+	for i in range(6):
+		var a := (float(i) / 6.0) * TAU
+		var bough := Polygon2D.new()
+		bough.material = add_mat
+		bough.polygon = PackedVector2Array([
+			Vector2(0, 0), Vector2(46, -24), Vector2(88, 0), Vector2(46, 24)
+		])
+		bough.color = Color(bright.r, bright.g, bright.b, 0.34)
+		bough.rotation = a
+		bough.scale = Vector2(1.0, 0.72)
+		domain.add_child(bough)
+
+	var dom_tw := domain.create_tween()
+	dom_tw.tween_property(domain, "rotation", 0.42, 1.15)
+	dom_tw.tween_property(domain, "modulate:a", 0.0, 0.25)
+	dom_tw.tween_callback(domain.queue_free)
+
+	# Radiant 9-Tail Spirit Fan + 18 drifting golden petals
+	var fan := Node2D.new()
+	fan.position = pos + Vector2(0.0, -36.0)
+	fx_parent.add_child(fan)
+
+	for i in range(9):
+		var t := float(i) / 8.0
+		var tail_ang := lerpf(-1.25, 1.25, t) - PI * 0.5
+		var tail := Polygon2D.new()
+		tail.material = add_mat
+		tail.polygon = PackedVector2Array([
+			Vector2(0, 0),
+			Vector2(-14, -68),
+			Vector2(-6, -138),
+			Vector2(0, -162),
+			Vector2(6, -138),
+			Vector2(14, -68),
+		])
+		tail.color = Color(bright.r, bright.g, bright.b, 0.52) if i % 2 == 0 else Color(gold.r, gold.g, gold.b, 0.46)
+		tail.rotation = tail_ang + PI * 0.5
+		tail.scale = Vector2(0.2, 0.2)
+		fan.add_child(tail)
+		var ttw := tail.create_tween()
+		ttw.tween_interval(float(abs(i - 4)) * 0.025)
+		ttw.tween_property(tail, "scale", Vector2(1.0, 1.0), 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+	for p_i in range(18):
+		var pa := (float(p_i) / 18.0) * TAU
+		var petal := Polygon2D.new()
+		petal.material = add_mat
+		petal.polygon = PackedVector2Array([
+			Vector2(-5, 0), Vector2(0, -3), Vector2(6, 0), Vector2(0, 3)
+		])
+		petal.color = bright if p_i % 2 == 0 else gold
+		petal.position = Vector2(cos(pa) * 32.0, sin(pa) * 22.0)
+		petal.rotation = pa
+		fan.add_child(petal)
+		var ptw := petal.create_tween()
+		ptw.tween_property(petal, "position", Vector2(cos(pa) * 215.0, sin(pa) * 145.0 - 24.0), 1.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+	var ftw := fan.create_tween()
+	ftw.tween_interval(1.0)
+	ftw.tween_property(fan, "modulate:a", 0.0, 0.35)
+	ftw.tween_callback(fan.queue_free)
+
+
+# 13. คลื่นยันต์สายฟ้า (Song Ren Skill [Q])
+static func spawn_talisman_lightning_burst(fx_parent: Node2D, pos: Vector2, angle: float, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var cyan := Color("#22d3ee")
+	var gold := Color("#facc15")
+	var root := Node2D.new()
+	root.position = pos
+	root.rotation = angle
+	fx_parent.add_child(root)
+
+	var shock := Line2D.new()
+	shock.material = add_mat
+	var spts := _make_ellipse(36.0, 48.0, 24)
+	spts.append(spts[0])
+	shock.points = spts
+	shock.width = 4.5
+	shock.default_color = cyan
+	root.add_child(shock)
+
+	for spread in [-0.36, -0.18, 0.0, 0.18, 0.36]:
+		var sp_ang: float = float(spread)
+		var tal := Polygon2D.new()
+		tal.material = add_mat
+		tal.polygon = PackedVector2Array([
+			Vector2(-8, -4), Vector2(8, -4), Vector2(8, 4), Vector2(-8, 4)
+		])
+		tal.color = gold
+		tal.rotation = sp_ang
+		tal.position = Vector2(16.0, sp_ang * 24.0)
+		root.add_child(tal)
+		var ttw := tal.create_tween()
+		var tdir := Vector2(cos(sp_ang), sin(sp_ang))
+		ttw.tween_property(tal, "position", tal.position + tdir * 135.0, 0.28).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+		var zap := Line2D.new()
+		zap.material = add_mat
+		zap.points = PackedVector2Array([
+			Vector2(10.0, sp_ang * 14.0),
+			Vector2(62.0, sp_ang * 34.0 + randf_range(-8.0, 8.0)),
+			Vector2(118.0, sp_ang * 56.0),
+		])
+		zap.width = 2.6
+		zap.default_color = cyan
+		root.add_child(zap)
+
+	var tw := root.create_tween()
+	tw.tween_property(root, "scale", Vector2(1.25, 1.25), 0.30)
+	tw.parallel().tween_property(root, "modulate:a", 0.0, 0.30)
+	tw.tween_callback(root.queue_free)
+
+
+# 14. ค่ายกลแปดทิศ + โซ่วิญญาณ (Song Ren Skill [E])
+static func spawn_bagua_binding_array(floor_parent: Node2D, fx_parent: Node2D, pos: Vector2, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var cyan := Color("#22d3ee")
+	var gold := Color("#facc15")
+
+	var seal := Node2D.new()
+	seal.position = pos
+	floor_parent.add_child(seal)
+
+	var oct := Line2D.new()
+	oct.material = add_mat
+	var opts := PackedVector2Array()
+	for i in range(9):
+		var a := (float(i % 8) / 8.0) * TAU + PI / 8.0
+		opts.append(Vector2(cos(a) * 185.0, sin(a) * 130.0))
+	oct.points = opts
+	oct.width = 3.8
+	oct.default_color = cyan
+	seal.add_child(oct)
+
+	var inner := Line2D.new()
+	inner.material = add_mat
+	var ipts := _make_ellipse(112.0, 78.0, 28)
+	ipts.append(ipts[0])
+	inner.points = ipts
+	inner.width = 2.6
+	inner.default_color = Color("#bae6fd")
+	seal.add_child(inner)
+
+	# 8 Trigram bars around the Bagua ring
+	for i in range(8):
+		var a := (float(i) / 8.0) * TAU
+		var bar := Line2D.new()
+		bar.material = add_mat
+		var c := Vector2(cos(a) * 145.0, sin(a) * 102.0)
+		var tang := Vector2(-sin(a), cos(a)) * 14.0
+		bar.points = PackedVector2Array([c - tang, c + tang])
+		bar.width = 3.5
+		bar.default_color = cyan
+		seal.add_child(bar)
+
+	var stw := seal.create_tween()
+	stw.tween_property(seal, "rotation", 0.55, 0.85)
+	stw.parallel().tween_property(seal, "modulate:a", 0.0, 0.85)
+	stw.tween_callback(seal.queue_free)
+
+	# 4 Luminous Spirit Chains snapping across + central golden talisman flash
+	var chains := Node2D.new()
+	chains.position = pos
+	fx_parent.add_child(chains)
+	for i in range(4):
+		var a := (float(i) / 4.0) * TAU + PI * 0.25
+		var chain := Line2D.new()
+		chain.material = add_mat
+		var cpts := PackedVector2Array()
+		for s in range(9):
+			var t := float(s) / 8.0
+			var r := lerpf(190.0, 12.0, t)
+			var perp := Vector2(-sin(a), cos(a)) * (8.0 if s % 2 == 0 else -8.0)
+			cpts.append(Vector2(cos(a) * r, sin(a) * r * 0.72) + perp)
+		chain.points = cpts
+		chain.width = 3.4
+		chain.default_color = cyan
+		chains.add_child(chain)
+
+	var tal_flash := Polygon2D.new()
+	tal_flash.material = add_mat
+	tal_flash.polygon = PackedVector2Array([
+		Vector2(-10, -24), Vector2(10, -24), Vector2(10, 24), Vector2(-10, 24)
+	])
+	tal_flash.color = gold
+	tal_flash.position = Vector2(0.0, -32.0)
+	chains.add_child(tal_flash)
+
+	var ctw := chains.create_tween()
+	ctw.tween_property(chains, "scale", Vector2(1.08, 1.08), 0.35)
+	ctw.tween_interval(0.25)
+	ctw.tween_property(chains, "modulate:a", 0.0, 0.25)
+	ctw.tween_callback(chains.queue_free)
+
+
+# 15. โดมแปดทิศ + 8 เสาอัสนีบาตสวรรค์ (Song Ren Skill [R])
+static func spawn_heavenly_bagua_dome(floor_parent: Node2D, fx_parent: Node2D, pos: Vector2, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var cyan := Color("#22d3ee")
+	var bright := Color("#e0f2fe")
+	var gold := Color("#facc15")
+
+	var array_node := Node2D.new()
+	array_node.position = pos
+	floor_parent.add_child(array_node)
+
+	for spec in [[225.0, 158.0, 4.0, cyan], [166.0, 116.0, 2.5, bright]]:
+		var ring := Line2D.new()
+		ring.material = add_mat
+		var rpts := _make_ellipse(float(spec[0]), float(spec[1]), 40)
+		rpts.append(rpts[0])
+		ring.points = rpts
+		ring.width = float(spec[2])
+		ring.default_color = spec[3]
+		array_node.add_child(ring)
+
+	var atw := array_node.create_tween()
+	atw.tween_property(array_node, "rotation", -0.55, 1.15)
+	atw.tween_property(array_node, "modulate:a", 0.0, 0.25)
+	atw.tween_callback(array_node.queue_free)
+
+	# Barrier dome + 8 orbiting talismans + 8 surging lightning pillars
+	var dome := Node2D.new()
+	dome.position = pos
+	fx_parent.add_child(dome)
+
+	var dome_fill := Polygon2D.new()
+	dome_fill.material = add_mat
+	var dpts := PackedVector2Array()
+	for i in range(25):
+		var a := lerpf(PI, TAU, float(i) / 24.0)
+		dpts.append(Vector2(cos(a) * 195.0, sin(a) * 155.0 + 18.0))
+	dpts.append(Vector2(195.0, 38.0))
+	dpts.append(Vector2(-195.0, 38.0))
+	dome_fill.polygon = dpts
+	dome_fill.color = Color(cyan.r, cyan.g, cyan.b, 0.20)
+	dome.add_child(dome_fill)
+
+	var rim := Line2D.new()
+	rim.material = add_mat
+	var rim_pts := PackedVector2Array()
+	for i in range(25):
+		var a := lerpf(PI, TAU, float(i) / 24.0)
+		rim_pts.append(Vector2(cos(a) * 195.0, sin(a) * 155.0 + 18.0))
+	rim.points = rim_pts
+	rim.width = 3.5
+	rim.default_color = bright
+	dome.add_child(rim)
+
+	for i in range(8):
+		var a := (float(i) / 8.0) * TAU
+		var p_pos := Vector2(cos(a) * 188.0, sin(a) * 130.0)
+
+		var tal := Polygon2D.new()
+		tal.material = add_mat
+		tal.polygon = PackedVector2Array([
+			Vector2(-6, -15), Vector2(6, -15), Vector2(6, 15), Vector2(-6, 15)
+		])
+		tal.color = gold
+		tal.position = p_pos + Vector2(0.0, -34.0)
+		dome.add_child(tal)
+
+		var pillar := Polygon2D.new()
+		pillar.material = add_mat
+		pillar.polygon = PackedVector2Array([
+			Vector2(-9, 8), Vector2(-6, -240), Vector2(6, -240), Vector2(9, 8)
+		])
+		pillar.color = Color(bright.r, bright.g, bright.b, 0.78) if i % 2 == 0 else Color(cyan.r, cyan.g, cyan.b, 0.72)
+		pillar.position = p_pos
+		pillar.scale = Vector2(1.0, 0.05)
+		dome.add_child(pillar)
+		var ptw := pillar.create_tween()
+		ptw.tween_interval(float(i) * 0.03)
+		ptw.tween_property(pillar, "scale", Vector2(1.0, 1.0), 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+	var ftw := dome.create_tween()
+	ftw.tween_interval(1.0)
+	ftw.tween_property(dome, "modulate:a", 0.0, 0.35)
+	ftw.tween_callback(dome.queue_free)

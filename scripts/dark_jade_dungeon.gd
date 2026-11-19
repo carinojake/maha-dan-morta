@@ -1310,12 +1310,16 @@ func _cast_skill_q(aim_dir: Vector2):
 				_damage_enemy(e, int(atk * 1.45), aim_dir, data["color"], 0.30, true)
 				e.set_meta("stun", 0.85)
 	elif active_hero_id == "song_ren":
+		VfxStudio.spawn_talisman_lightning_burst(fx_layer, player.global_position + aim_dir * 30.0, aim_dir.angle(), data["color"])
 		for ang in [-0.40, -0.20, 0.0, 0.20, 0.40]:
 			var d := aim_dir.rotated(ang)
 			_spawn_projectile(player.global_position + d * 28.0, d, int(atk * 1.15), data["vfx_attack"], data["color"], 700.0, true)
 	else:
 		var reach := 270.0 if active_hero_id == "yu_han" else 220.0
-		_spawn_slash_vfx(player.global_position + aim_dir * 65.0, aim_dir.angle(), data["vfx_attack"], data["color"], 1.35)
+		if active_hero_id == "hei_shan":
+			VfxStudio.spawn_crimson_ribbon_needles(fx_layer, player.global_position + aim_dir * 28.0, aim_dir.angle(), data["color"])
+		else:
+			_spawn_slash_vfx(player.global_position + aim_dir * 65.0, aim_dir.angle(), data["vfx_attack"], data["color"], 1.35)
 		for e in enemies:
 			if is_instance_valid(e) and e.global_position.distance_to(player.global_position) <= reach:
 				_damage_enemy(e, int(atk * 1.40), aim_dir, data["color"], _get_hero_stat(active_hero_id, "crit"), true)
@@ -1339,6 +1343,10 @@ func _cast_skill_e():
 	VfxStudio.spawn_galaxy_vortex(floor_layer, player.global_position, data["color"], 185.0)
 	if active_hero_id == "bai_yueling":
 		VfxStudio.spawn_ice_lotus_and_sword_halo(floor_layer, fx_layer, player.global_position, data["color"])
+	elif active_hero_id == "song_ren":
+		VfxStudio.spawn_bagua_binding_array(floor_layer, fx_layer, player.global_position, data["color"])
+	elif active_hero_id == "hei_shan":
+		VfxStudio.spawn_golden_vine_sanctuary(floor_layer, fx_layer, player.global_position, data["color"])
 
 	for i in range(6):
 		var ang := (float(i) / 6.0) * TAU
@@ -1408,9 +1416,14 @@ func _cast_skill_r():
 	_spawn_ring_vfx(player.global_position, col, 280.0)
 	if active_hero_id == "bai_yueling":
 		VfxStudio.spawn_myriad_ice_domain(floor_layer, fx_layer, player.global_position, col)
-		if bool(save_data.get("cutin_enabled", true)) and cutin_overlay:
-			if cutin_overlay.play("bai_yueling") and hitstop_timer <= 0.0:
-				Engine.time_scale = minf(Engine.time_scale, cutin_overlay.get_slowmo_scale())
+	elif active_hero_id == "song_ren":
+		VfxStudio.spawn_heavenly_bagua_dome(floor_layer, fx_layer, player.global_position, col)
+	elif active_hero_id == "hei_shan":
+		VfxStudio.spawn_ninetail_blossom_domain(floor_layer, fx_layer, player.global_position, col)
+
+	if bool(save_data.get("cutin_enabled", true)) and cutin_overlay and cutin_overlay.has_cutin(active_hero_id):
+		if cutin_overlay.play(active_hero_id) and hitstop_timer <= 0.0:
+			Engine.time_scale = minf(Engine.time_scale, cutin_overlay.get_slowmo_scale())
 
 	var targets := enemies.duplicate()
 	for i in range(12):

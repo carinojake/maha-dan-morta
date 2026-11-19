@@ -23,6 +23,28 @@ const CUTINS := {
 		"subtitle": "ไป๋เยว่หลิง · เซียนกระบี่เหมันต์",
 		"accent": Color("#38bdf8"),
 	},
+	"hei_shan": {
+		"sheet": "res://assets/vfx/cutin_hei_shan_r_sheet.jpg",
+		"audio": "res://assets/vfx/cutin_hei_shan_r.wav",
+		"cols": 6,
+		"rows": 5,
+		"frames": 30,
+		"fps": 17.5,
+		"title": "★ สวนสวรรค์ร้อยบุปผา",
+		"subtitle": "เฮยซานเหล่ากุ่ย · เซียนพฤกษาจิ้งจอกเก้าหาง",
+		"accent": Color("#fbbf24"),
+	},
+	"song_ren": {
+		"sheet": "res://assets/vfx/cutin_song_ren_r_sheet.jpg",
+		"audio": "res://assets/vfx/cutin_song_ren_r.wav",
+		"cols": 6,
+		"rows": 5,
+		"frames": 30,
+		"fps": 16.5,
+		"title": "★ อัสนีบาตสวรรค์",
+		"subtitle": "ซ่งเหริน · นักพรตยันต์แปดทิศ",
+		"accent": Color("#22d3ee"),
+	},
 }
 
 var panel: PanelContainer
