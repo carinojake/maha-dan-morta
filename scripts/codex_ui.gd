@@ -135,6 +135,36 @@ static func build_modal(hud: CanvasLayer, sb: StyleBoxFlat, chapter: int, callba
 	tip_lbl.add_theme_color_override("font_color", Color("#94a3b8"))
 	upg_root.add_child(tip_lbl)
 
+	var save_row := HBoxContainer.new()
+	save_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	save_row.add_theme_constant_override("separation", 6)
+	upg_root.add_child(save_row)
+
+	var save_code_input := LineEdit.new()
+	save_code_input.placeholder_text = "วางรหัสย้ายเซฟ MDM1:... ที่นี่"
+	save_code_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_code_input.custom_minimum_size = Vector2(340, 32)
+	save_code_input.add_theme_font_size_override("font_size", 12)
+	save_row.add_child(save_code_input)
+
+	var copy_save_btn := Button.new()
+	copy_save_btn.text = "📤 คัดลอกเซฟ"
+	copy_save_btn.custom_minimum_size = Vector2(130, 32)
+	copy_save_btn.add_theme_font_size_override("font_size", 12)
+	copy_save_btn.add_theme_color_override("font_color", Color("#93c5fd"))
+	if callbacks.has("export_save"):
+		copy_save_btn.pressed.connect(callbacks["export_save"])
+	save_row.add_child(copy_save_btn)
+
+	var import_save_btn := Button.new()
+	import_save_btn.text = "📥 นำเข้าเซฟ"
+	import_save_btn.custom_minimum_size = Vector2(130, 32)
+	import_save_btn.add_theme_font_size_override("font_size", 12)
+	import_save_btn.add_theme_color_override("font_color", Color("#4ade80"))
+	if callbacks.has("import_save"):
+		import_save_btn.pressed.connect(callbacks["import_save"])
+	save_row.add_child(import_save_btn)
+
 	var footer_row := HBoxContainer.new()
 	footer_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	footer_row.add_theme_constant_override("separation", 14)
@@ -176,6 +206,7 @@ static func build_modal(hud: CanvasLayer, sb: StyleBoxFlat, chapter: int, callba
 		"chapter_btns": chapter_btns,
 		"cutin_btn": cutin_btn,
 		"bgm_btn": bgm_btn,
+		"save_code_input": save_code_input,
 	}
 
 

@@ -113,6 +113,19 @@ func _process(_delta: float) -> bool:
 	if not _check(_scene.save_data["owned_gear"].size() == owned_before + 1, "Boss kill drop must unlock a new unowned gear item"):
 		return true
 
+	# 4. P2: Cross-device Save Code export / import round-trip & invalid rejection
+	_scene.save_data["spirit_jade"] = 777
+	var code: String = SaveManager.export_save_code(_scene.save_data)
+	if not _check(code.begins_with("MDM1:"), "Exported save code must begin with MDM1:"):
+		return true
+	var bad_res: Dictionary = SaveManager.import_save_code("BAD_CODE")
+	if not _check(not bool(bad_res.get("ok", true)), "Invalid save code must be rejected"):
+		return true
+	_scene.save_data["spirit_jade"] = 10
+	_scene._import_save_code(code)
+	if not _check(int(_scene.save_data.get("spirit_jade", 0)) == 777, "Importing save code must restore spirit_jade=777"):
+		return true
+
 	Engine.time_scale = 1.0
 	_scene.queue_free()
 	print("P1_PROGRESSION_E2E_PASSED: 12 Boons, Miniboss/Boss HUD, 10 Gear items, Forging, Boss Drops, and Save Persistence verified!")

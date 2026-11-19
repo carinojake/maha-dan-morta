@@ -32,8 +32,8 @@ static func _sanitize_party(raw_party: Variant) -> Array:
 			out.append(fallback)
 	return out
 
-static func load_data(path: String = DEFAULT_PATH) -> Dictionary:
-	var data := {
+static func _default_data() -> Dictionary:
+	return {
 		"spirit_jade": 0,
 		"difficulty": "normal",
 		"core_upgrades": {
@@ -52,16 +52,23 @@ static func load_data(path: String = DEFAULT_PATH) -> Dictionary:
 		"owned_gear": ["jade_sword", "spirit_orb"],
 		"hero_gear": {},
 	}
+
+
+static func load_data(path: String = DEFAULT_PATH) -> Dictionary:
 	if not FileAccess.file_exists(path):
-		return data
+		return _default_data()
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
-		return data
+		return _default_data()
 	var parsed: Variant = JSON.parse_string(f.get_as_text())
 	f.close()
 	if typeof(parsed) != TYPE_DICTIONARY:
-		return data
-	var d: Dictionary = parsed
+		return _default_data()
+	return sanitize_data(parsed as Dictionary)
+
+
+static func sanitize_data(d: Dictionary) -> Dictionary:
+	var data := _default_data()
 	data["spirit_jade"] = int(d.get("spirit_jade", 0))
 	data["difficulty"] = str(d.get("difficulty", "normal"))
 	if d.has("core_upgrades") and typeof(d["core_upgrades"]) == TYPE_DICTIONARY:
@@ -136,3 +143,27 @@ static func get_core_max_lv(key: String) -> int:
 
 static func get_passive_cost() -> int:
 	return 40
+
+
+static func export_save_code(data: Dictionary) -> String:
+	var clean := sanitize_data(data)
+	var json_str := JSON.stringify(clean)
+	var b64 := Marshalls.raw_to_base64(json_str.to_utf8_buffer())
+	return "MDM1:" + b64
+
+
+static func import_save_code(raw_code: String) -> Dictionary:
+	var code := raw_code.strip_edges()
+	if not code.begins_with("MDM1:"):
+		return {"ok": false, "error": "รหัสไม่ถูกต้อง (ต้องขึ้นต้นด้วย MDM1:)"}
+	var b64 := code.substr(5).strip_edges()
+	if b64.is_empty():
+		return {"ok": false, "error": "รหัสว่างเปล่า"}
+	var raw := Marshalls.base64_to_raw(b64)
+	if raw.is_empty():
+		return {"ok": false, "error": "ถอดรหัส Base64 ไม่สำเร็จ"}
+	var json_str := raw.get_string_from_utf8()
+	var parsed: Variant = JSON.parse_string(json_str)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return {"ok": false, "error": "ข้อมูลเซฟเสียหายหรือไม่ใช่ JSON"}
+	return {"ok": true, "data": sanitize_data(parsed as Dictionary)}

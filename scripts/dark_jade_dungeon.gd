@@ -152,6 +152,8 @@ var cutin_overlay: Control
 var pending_ult_hero: String = ""
 var codex_cutin_btn: Button
 var codex_bgm_btn: Button
+var codex_save_input: LineEdit
+var _landscape_hint_shown: bool = false
 var bot_center_row: HBoxContainer
 var mobile_controls: Control
 var touch_btn: Button
@@ -766,6 +768,8 @@ func _build_hud():
 		"toggle": _toggle_upgrade_modal,
 		"toggle_cutin": _toggle_cutin,
 		"toggle_bgm": _toggle_bgm,
+		"export_save": _export_save_code,
+		"import_save": _import_save_code,
 	})
 	upgrade_overlay = codex_refs["overlay"]
 	upgrade_jade_lbl = codex_refs["jade_lbl"]
@@ -780,6 +784,7 @@ func _build_hud():
 	codex_chapter_btns = codex_refs["chapter_btns"]
 	codex_cutin_btn = codex_refs["cutin_btn"]
 	codex_bgm_btn = codex_refs.get("bgm_btn")
+	codex_save_input = codex_refs.get("save_code_input")
 	_refresh_bgm_btn()
 	_refresh_cutin_btn()
 	_set_codex_tab(0)
@@ -3047,3 +3052,45 @@ func _rebuild_gear_list():
 			btn.disabled = int(save_data.get("spirit_jade", 0)) < cost
 			btn.pressed.connect(_forge_gear_item.bind(item_id))
 		row.add_child(btn)
+
+
+func _export_save_code():
+	var code := SaveManager.export_save_code(save_data)
+	if codex_save_input:
+		codex_save_input.text = code
+		codex_save_input.select_all()
+	DisplayServer.clipboard_set(code)
+	sfx.play_sfx("crit")
+	_show_banner("📤 คัดลอกรหัสย้ายเซฟแล้ว! นำไปวางอีกเครื่องได้เลย", 2.4)
+
+
+func _import_save_code(raw_override: String = ""):
+	var raw_code := raw_override.strip_edges()
+	if raw_code.is_empty() and codex_save_input:
+		raw_code = codex_save_input.text.strip_edges()
+	if raw_code.is_empty():
+		raw_code = DisplayServer.clipboard_get().strip_edges()
+	var res := SaveManager.import_save_code(raw_code)
+	if not bool(res.get("ok", false)):
+		_show_banner("❌ " + str(res.get("error", "รหัสเซฟไม่ถูกต้อง")), 2.2)
+		return
+	save_data = res["data"]
+	SaveManager.save_data(save_data, save_path)
+	active_party = save_data.get("party", HeroData.DEFAULT_PARTY.duplicate()).duplicate()
+	if not active_party.has(active_hero_id):
+		active_hero_id = str(active_party[0])
+	_init_hero_stats()
+	_switch_hero(active_hero_id, false)
+	if sfx:
+		sfx.set_bgm_enabled(bool(save_data.get("bgm_enabled", true)))
+	_refresh_cutin_btn()
+	_refresh_bgm_btn()
+	_rebuild_upgrade_list()
+	_rebuild_party_list()
+	_rebuild_gear_list()
+	CodexUI.refresh_chapters(codex_chapter_btns, chapter, save_data.get("cleared_chapters", []))
+	if upgrade_jade_lbl:
+		upgrade_jade_lbl.text = "💎 หยกปราณคงเหลือ: %d" % int(save_data["spirit_jade"])
+	_refresh_hud()
+	sfx.play_sfx("victory")
+	_show_banner("✅ นำเข้าเซฟสำเร็จ! หยกปราณ %d 💎" % int(save_data["spirit_jade"]), 2.6)
