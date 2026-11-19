@@ -47,6 +47,7 @@ static func load_data(path: String = DEFAULT_PATH) -> Dictionary:
 		"cleared_chapters": [],
 		"cutin_enabled": true,
 		"cutin_mode": "full",
+		"bgm_enabled": true,
 	}
 	if not FileAccess.file_exists(path):
 		return data
@@ -85,6 +86,7 @@ static func load_data(path: String = DEFAULT_PATH) -> Dictionary:
 	if not (cmode in ["full", "boss", "skip"]):
 		cmode = "full" if data["cutin_enabled"] else "skip"
 	data["cutin_mode"] = cmode
+	data["bgm_enabled"] = bool(d.get("bgm_enabled", true))
 	data["cutin_enabled"] = cmode != "skip"
 	return data
 

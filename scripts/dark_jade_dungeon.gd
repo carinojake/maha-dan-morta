@@ -147,6 +147,7 @@ var dodge_ready_label: Label
 var cutin_overlay: Control
 var pending_ult_hero: String = ""
 var codex_cutin_btn: Button
+var codex_bgm_btn: Button
 var bot_center_row: HBoxContainer
 var mobile_controls: Control
 var touch_btn: Button
@@ -172,6 +173,7 @@ func _ready():
 	light_tex = load("res://assets/env/light_radial.png")
 	sfx = SfxSynth.new()
 	add_child(sfx)
+	sfx.set_bgm_enabled(bool(save_data.get("bgm_enabled", true)))
 	_preload_hero_textures()
 	_init_hero_stats()
 	_build_environment()
@@ -756,6 +758,7 @@ func _build_hud():
 		"boss_rush": _start_boss_rush,
 		"toggle": _toggle_upgrade_modal,
 		"toggle_cutin": _toggle_cutin,
+		"toggle_bgm": _toggle_bgm,
 	})
 	upgrade_overlay = codex_refs["overlay"]
 	upgrade_jade_lbl = codex_refs["jade_lbl"]
@@ -767,10 +770,12 @@ func _build_hud():
 	codex_chapters_box = codex_refs["chapters_box"]
 	codex_chapter_btns = codex_refs["chapter_btns"]
 	codex_cutin_btn = codex_refs["cutin_btn"]
+	codex_bgm_btn = codex_refs.get("bgm_btn")
+	_refresh_bgm_btn()
 	_refresh_cutin_btn()
 	_set_codex_tab(0)
 
-	help_overlay = CodexUI.build_help_overlay(hud, sb, _toggle_help_overlay)
+	help_overlay = CodexUI.build_help_overlay(hud, sb, _toggle_help_overlay, {"open_party": _open_codex_tab.bind(1), "open_chapters": _open_codex_tab.bind(2)})
 	help_overlay.visible = (DisplayServer.get_name() != "headless") and not bool(Globals.get_meta("skip_intro", false)) and not boss_rush_mode
 
 	var boon_refs := CodexUI.build_boon_overlay(hud, sb, _pick_boon)
@@ -931,7 +936,7 @@ func _warp_to_room(room_idx: int):
 func _spawn_room_wave(room_idx: int):
 	current_room = clampi(room_idx, 0, _total_rooms() - 1)
 	if sfx and sfx.has_method("set_bgm_mode"):
-		sfx.set_bgm_mode(current_room == 9)
+		sfx.set_bgm_mode(current_room == 4 or current_room == 9 or boss_rush_mode)
 	if minimap_ctrl:
 		minimap_ctrl.queue_redraw()
 	var cdata := ChapterData.get_chapter(chapter)
@@ -1545,6 +1550,7 @@ func _cast_skill_r():
 			# Combat is frozen (see _is_cutin_fullscreen in _process); damage is
 			# released by _on_cutin_fullscreen_finished so the clip lands the hit.
 			pending_ult_hero = active_hero_id
+			sfx.set_bgm_ducked(true)
 			invuln_timer = maxf(invuln_timer, 1.0)
 			Engine.time_scale = 1.0
 			if mobile_controls:
@@ -2712,6 +2718,7 @@ func _should_play_fullscreen_cutin(mode: String) -> bool:
 
 
 func _on_cutin_fullscreen_finished(_hid: String):
+	sfx.set_bgm_ducked(false)
 	if pending_ult_hero == "":
 		return
 	pending_ult_hero = ""
@@ -2737,6 +2744,33 @@ func _toggle_cutin():
 	SaveManager.save_data(save_data, save_path)
 	_refresh_cutin_btn()
 	_show_banner(str(CUTIN_MODE_BANNERS[mode]), 1.6)
+
+
+func _refresh_bgm_btn():
+	if not codex_bgm_btn:
+		return
+	var enabled := bool(save_data.get("bgm_enabled", true))
+	codex_bgm_btn.text = "🎵 เพลง: เปิด" if enabled else "🔇 เพลง: ปิด"
+	codex_bgm_btn.add_theme_color_override("font_color", Color("#86efac") if enabled else Color("#94a3b8"))
+
+
+func _toggle_bgm():
+	var next_val := not bool(save_data.get("bgm_enabled", true))
+	save_data["bgm_enabled"] = next_val
+	SaveManager.save_data(save_data, save_path)
+	sfx.set_bgm_enabled(next_val)
+	_refresh_bgm_btn()
+	_show_banner("เพลงประกอบฉาก: %s" % ("เปิด" if next_val else "ปิด"), 1.3)
+
+
+func _open_codex_tab(tab_idx: int):
+	if help_overlay:
+		help_overlay.visible = false
+	if sfx and sfx.has_method("resume_audio"):
+		sfx.resume_audio()
+	if upgrade_overlay and not upgrade_overlay.visible:
+		_toggle_upgrade_modal()
+	_set_codex_tab(tab_idx)
 
 
 func _rebuild_upgrade_list():

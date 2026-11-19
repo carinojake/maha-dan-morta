@@ -131,16 +131,24 @@ static func build_modal(hud: CanvasLayer, sb: StyleBoxFlat, chapter: int, callba
 	upg_root.add_child(footer_row)
 
 	var cutin_btn := Button.new()
-	cutin_btn.text = "★ คัตอินท่าไม้ตาย: เปิด"
-	cutin_btn.custom_minimum_size = Vector2(210, 32)
+	cutin_btn.text = "★ คัตอิน: เต็มจอ"
+	cutin_btn.custom_minimum_size = Vector2(180, 32)
 	cutin_btn.add_theme_font_size_override("font_size", 12)
 	if callbacks.has("toggle_cutin"):
 		cutin_btn.pressed.connect(callbacks["toggle_cutin"])
 	footer_row.add_child(cutin_btn)
 
+	var bgm_btn := Button.new()
+	bgm_btn.text = "🎵 เพลง: เปิด"
+	bgm_btn.custom_minimum_size = Vector2(140, 32)
+	bgm_btn.add_theme_font_size_override("font_size", 12)
+	if callbacks.has("toggle_bgm"):
+		bgm_btn.pressed.connect(callbacks["toggle_bgm"])
+	footer_row.add_child(bgm_btn)
+
 	var close_upg := Button.new()
 	close_upg.text = "ปิด [U]"
-	close_upg.custom_minimum_size = Vector2(140, 32)
+	close_upg.custom_minimum_size = Vector2(120, 32)
 	close_upg.pressed.connect(callbacks["toggle"])
 	footer_row.add_child(close_upg)
 
@@ -155,6 +163,7 @@ static func build_modal(hud: CanvasLayer, sb: StyleBoxFlat, chapter: int, callba
 		"chapters_box": chapters_box,
 		"chapter_btns": chapter_btns,
 		"cutin_btn": cutin_btn,
+		"bgm_btn": bgm_btn,
 	}
 
 
@@ -177,7 +186,7 @@ static func refresh_chapters(chapter_btns: Array, current_chapter: int, cleared_
 			cb.remove_theme_color_override("font_color")
 
 
-static func build_help_overlay(hud: CanvasLayer, sb: StyleBoxFlat, on_close: Callable) -> ColorRect:
+static func build_help_overlay(hud: CanvasLayer, sb: StyleBoxFlat, on_close: Callable, extra_callbacks: Dictionary = {}) -> ColorRect:
 	var overlay := ColorRect.new()
 	overlay.color = Color(0.02, 0.03, 0.05, 0.86)
 	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -224,6 +233,30 @@ static func build_help_overlay(hud: CanvasLayer, sb: StyleBoxFlat, on_close: Cal
 		lbl.add_theme_font_size_override("font_size", 13)
 		lbl.add_theme_color_override("font_color", Color("#e2e8f0"))
 		root.add_child(lbl)
+
+	if extra_callbacks.has("open_party") or extra_callbacks.has("open_chapters"):
+		var lobby_row := HBoxContainer.new()
+		lobby_row.alignment = BoxContainer.ALIGNMENT_CENTER
+		lobby_row.add_theme_constant_override("separation", 12)
+		root.add_child(lobby_row)
+
+		if extra_callbacks.has("open_party"):
+			var party_quick_btn := Button.new()
+			party_quick_btn.text = "👥 จัดทีม 3 จอมยุทธ์"
+			party_quick_btn.custom_minimum_size = Vector2(220, 38)
+			party_quick_btn.add_theme_font_size_override("font_size", 13)
+			party_quick_btn.add_theme_color_override("font_color", Color("#93c5fd"))
+			party_quick_btn.pressed.connect(extra_callbacks["open_party"])
+			lobby_row.add_child(party_quick_btn)
+
+		if extra_callbacks.has("open_chapters"):
+			var chap_quick_btn := Button.new()
+			chap_quick_btn.text = "🗺️ เลือกบท / 100 ชั้น"
+			chap_quick_btn.custom_minimum_size = Vector2(220, 38)
+			chap_quick_btn.add_theme_font_size_override("font_size", 13)
+			chap_quick_btn.add_theme_color_override("font_color", Color("#86efac"))
+			chap_quick_btn.pressed.connect(extra_callbacks["open_chapters"])
+			lobby_row.add_child(chap_quick_btn)
 
 	var start_btn := Button.new()
 	start_btn.text = "⚔️ เริ่มผจญภัยทันที [Enter / H]"

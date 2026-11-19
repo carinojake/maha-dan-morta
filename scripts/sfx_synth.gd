@@ -5,9 +5,11 @@ const MIX_RATE := 22050
 var _streams: Dictionary = {}
 var _players: Array[AudioStreamPlayer] = []
 var _bgm_player: AudioStreamPlayer
-var _bgm_normal: AudioStreamWAV
-var _bgm_boss: AudioStreamWAV
+var _bgm_normal: AudioStream
+var _bgm_boss: AudioStream
 var _bgm_is_boss: bool = false
+var _bgm_enabled: bool = true
+var _bgm_ducked: bool = false
 var _next_idx: int = 0
 
 
@@ -37,13 +39,37 @@ func _ready():
 	_streams["perfect_dodge"] = _make_chord([783.99, 1174.66, 1567.98, 2093.0], 0.42, 0.55)
 	_streams["reaction"] = _make_chord([392.0, 587.33, 880.0, 1318.5], 0.30, 0.55)
 
-	_bgm_normal = _make_xianxia_bgm_loop()
-	_bgm_boss = _make_boss_bgm_loop()
+	_bgm_normal = _load_bgm_ogg("res://music/310-world-map-loop.ogg")
+	if _bgm_normal == null:
+		_bgm_normal = _make_xianxia_bgm_loop()
+	_bgm_boss = _load_bgm_ogg("res://music/a-2-3-groovy-bgm.ogg")
+	if _bgm_boss == null:
+		_bgm_boss = _make_boss_bgm_loop()
 	_bgm_player = AudioStreamPlayer.new()
 	_bgm_player.stream = _bgm_normal
-	_bgm_player.volume_db = -17.0
+	_apply_bgm_volume()
 	add_child(_bgm_player)
-	_bgm_player.play()
+	if _bgm_enabled:
+		_bgm_player.play()
+
+
+func _load_bgm_ogg(res_path: String) -> AudioStream:
+	if ResourceLoader.exists(res_path):
+		var loaded: Resource = load(res_path)
+		if loaded is AudioStream:
+			if loaded.has_method("set_loop"):
+				loaded.set("loop", true)
+			elif "loop" in loaded:
+				loaded.set("loop", true)
+			return loaded as AudioStream
+	return null
+
+
+func _apply_bgm_volume():
+	if not is_instance_valid(_bgm_player):
+		return
+	var base_db := -11.5 if _bgm_is_boss else -14.0
+	_bgm_player.volume_db = (base_db - 12.0) if _bgm_ducked else base_db
 
 
 func set_bgm_mode(is_boss: bool):
@@ -51,13 +77,38 @@ func set_bgm_mode(is_boss: bool):
 		return
 	_bgm_is_boss = is_boss
 	_bgm_player.stream = _bgm_boss if is_boss else _bgm_normal
-	_bgm_player.volume_db = -14.5 if is_boss else -17.0
-	_bgm_player.play()
+	_apply_bgm_volume()
+	if _bgm_enabled:
+		_bgm_player.play()
+
+
+func set_bgm_enabled(enabled: bool):
+	_bgm_enabled = enabled
+	if not is_instance_valid(_bgm_player):
+		return
+	if _bgm_enabled:
+		_bgm_player.stream = _bgm_boss if _bgm_is_boss else _bgm_normal
+		_apply_bgm_volume()
+		if not _bgm_player.playing:
+			_bgm_player.play()
+	else:
+		_bgm_player.stop()
+
+
+func is_bgm_enabled() -> bool:
+	return _bgm_enabled
+
+
+func set_bgm_ducked(ducked: bool):
+	_bgm_ducked = ducked
+	_apply_bgm_volume()
 
 
 func resume_audio():
-	if is_instance_valid(_bgm_player):
+	# iOS Safari unlocks WebAudio only after a direct user tap/click gesture.
+	if is_instance_valid(_bgm_player) and _bgm_enabled:
 		_bgm_player.stream = _bgm_boss if _bgm_is_boss else _bgm_normal
+		_apply_bgm_volume()
 		if not _bgm_player.playing:
 			_bgm_player.play()
 	play_sfx("dodge")
