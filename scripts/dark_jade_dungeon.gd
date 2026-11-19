@@ -7,6 +7,7 @@ const ChapterData = preload("res://scripts/chapter_data.gd")
 const VfxStudio = preload("res://scripts/vfx_studio.gd")
 const MonsterData = preload("res://scripts/monster_data.gd")
 const CodexUI = preload("res://scripts/codex_ui.gd")
+const CombatSystem = preload("res://scripts/combat_system.gd")
 const TILE_SIZE := 64
 const ROOM_STRIDE := ChapterData.ROOM_STRIDE
 const HERO_SCALE := Vector2(0.42, 0.42)
@@ -50,6 +51,8 @@ var hitstop_timer: float = 0.0
 var last_skill_er_timer: float = 0.0
 var synergy_cd: float = 0.0
 var hazard_timer: float = 4.0
+var combat: CombatSystem = CombatSystem.new()
+var active_telegraphs: Array = []
 
 var _prev_q: bool = false
 var _prev_e: bool = false
@@ -123,6 +126,15 @@ var end_overlay: ColorRect
 var end_title: Label
 var restart_btn: Button
 var end_upgrade_btn: Button
+var combo_panel: PanelContainer
+var combo_rank_label: Label
+var combo_sub_label: Label
+var combo_bar: ProgressBar
+var dodge_ready_label: Label
+
+
+func _exit_tree():
+	Engine.time_scale = 1.0
 
 
 func _total_rooms() -> int:
@@ -592,6 +604,39 @@ func _build_hud():
 	help_btn.pressed.connect(_toggle_help_overlay)
 	btn_row.add_child(help_btn)
 
+	combo_panel = PanelContainer.new()
+	combo_panel.add_theme_stylebox_override("panel", sb)
+	combo_panel.visible = false
+	top_right.add_child(combo_panel)
+
+	var cb_vb := VBoxContainer.new()
+	cb_vb.add_theme_constant_override("separation", 3)
+	combo_panel.add_child(cb_vb)
+
+	combo_rank_label = Label.new()
+	combo_rank_label.text = "RANK D · 0 HITS"
+	combo_rank_label.add_theme_font_size_override("font_size", 16)
+	combo_rank_label.add_theme_color_override("font_color", Color("#94a3b8"))
+	cb_vb.add_child(combo_rank_label)
+
+	combo_sub_label = Label.new()
+	combo_sub_label.text = "ดาเมจ +0% · หยก +0%"
+	combo_sub_label.add_theme_font_size_override("font_size", 11)
+	combo_sub_label.add_theme_color_override("font_color", Color("#cbd5e1"))
+	cb_vb.add_child(combo_sub_label)
+
+	combo_bar = _make_bar(Color("#facc15"), 204, 8)
+	combo_bar.max_value = 100.0
+	combo_bar.value = 0.0
+	cb_vb.add_child(combo_bar)
+
+	dodge_ready_label = Label.new()
+	dodge_ready_label.text = "✨ สวนกลับพริบตาพร้อม! (คริ 100%)"
+	dodge_ready_label.add_theme_font_size_override("font_size", 11)
+	dodge_ready_label.add_theme_color_override("font_color", Color("#fde047"))
+	dodge_ready_label.visible = false
+	cb_vb.add_child(dodge_ready_label)
+
 	var codex_refs := CodexUI.build_modal(hud, sb, chapter, {
 		"set_tab": _set_codex_tab,
 		"jump_chapter": _jump_to_chapter,
@@ -714,6 +759,7 @@ func _switch_hero(hid: String, with_vfx: bool):
 func _trigger_switch_in_skill(hid: String):
 	synergy_cd = 2.0
 	last_skill_er_timer = 0.0
+	combat.add_combo(20.0, false)
 	var data: Dictionary = HeroData.HEROES[hid]
 	var atk := _get_hero_stat(hid, "atk")
 	var col: Color = data["color"]
@@ -1006,12 +1052,14 @@ func _process(delta: float):
 	if upgrade_overlay and upgrade_overlay.visible:
 		return
 
+	var real_delta := delta / maxf(Engine.time_scale, 0.05)
+	combat.tick(real_delta)
+
 	if hitstop_timer > 0.0:
-		hitstop_timer -= delta
-		Engine.time_scale = 0.08 if hitstop_timer > 0.0 else 1.0
-		if hitstop_timer <= 0.0:
-			Engine.time_scale = 1.0
+		hitstop_timer = maxf(0.0, hitstop_timer - real_delta)
+		Engine.time_scale = combat.get_desired_time_scale(hitstop_timer)
 		return
+	Engine.time_scale = combat.get_desired_time_scale(0.0)
 
 	hero_sp[active_hero_id] = minf(_get_hero_stat(active_hero_id, "max_sp"), hero_sp[active_hero_id] + 9.0 * delta)
 	q_cd = maxf(0.0, q_cd - delta)
@@ -1071,8 +1119,11 @@ func _physics_process(delta: float):
 		dash_timer = 0.18
 		dash_cooldown = 0.80
 		invuln_timer = 0.28
+		combat.on_dash_started()
 		sfx.play_sfx("dash")
 		_spawn_ghost_afterimage()
+		if _has_incoming_threat():
+			_activate_perfect_dodge()
 		if active_boons.has("thunder_dash"):
 			_spawn_ring_vfx(player.global_position, Color("#38bdf8"), 150.0)
 			for e in enemies:
@@ -1361,7 +1412,45 @@ func _trigger_ultimate_impact(pos: Vector2, data: Dictionary):
 						hero_hp[hid] = minf(_get_hero_stat(hid, "max_hp"), hero_hp[hid] + 8.0)
 
 
-func _damage_enemy(e: CharacterBody2D, base_dmg: int, push_dir: Vector2, col: Color, crit_chance: float, is_skill: bool = false):
+func _has_incoming_threat() -> bool:
+	if not is_instance_valid(player):
+		return false
+	var ppos := player.global_position
+	for ep in enemy_projectiles:
+		if is_instance_valid(ep) and ep.global_position.distance_to(ppos) <= CombatSystem.PERFECT_DODGE_PROJ_RADIUS:
+			return true
+	for t in active_telegraphs:
+		if ppos.distance_to(t["pos"]) <= float(t["radius"]) + 18.0:
+			return true
+	for e in enemies:
+		if not is_instance_valid(e):
+			continue
+		if float(e.get_meta("stun", 0.0)) > 0.0:
+			continue
+		var def: Dictionary = MONSTER_DEFS[str(e.get_meta("kind"))]
+		if e.global_position.distance_to(ppos) <= float(def["range"]) + CombatSystem.PERFECT_DODGE_THREAT_PAD:
+			return true
+	return false
+
+
+func _activate_perfect_dodge() -> bool:
+	if not combat.trigger_perfect_dodge():
+		return false
+	invuln_timer = maxf(invuln_timer, 0.55)
+	hero_sp[active_hero_id] = minf(_get_hero_stat(active_hero_id, "max_sp"), hero_sp[active_hero_id] + CombatSystem.PERFECT_DODGE_SP_GAIN)
+	Engine.time_scale = combat.get_desired_time_scale(hitstop_timer)
+	sfx.play_sfx("perfect_dodge")
+	_spawn_ring_vfx(player.global_position, Color("#fde047"), 140.0)
+	_spawn_floating_text(player.global_position + Vector2(0, -78), "⏱️ หลบพริบตา! +30 ปราณ · คริ 100%", Color("#fde047"), true)
+	if screen_flash:
+		screen_flash.color = Color(1.0, 0.85, 0.25, 0.34)
+		var ftw := create_tween()
+		ftw.tween_property(screen_flash, "color:a", 0.0, 0.35)
+	_refresh_hud()
+	return true
+
+
+func _damage_enemy(e: CharacterBody2D, base_dmg: int, push_dir: Vector2, col: Color, crit_chance: float, is_skill: bool = false, allow_reaction: bool = true):
 	if not is_instance_valid(e):
 		return
 	var kind: String = e.get_meta("kind")
@@ -1394,27 +1483,77 @@ func _damage_enemy(e: CharacterBody2D, base_dmg: int, push_dir: Vector2, col: Co
 			_spawn_floating_text(e.global_position + Vector2(0, -64), "🛡️ -%d" % int(sh_dmg), Color("#38bdf8"), false)
 		return
 
-	if is_skill:
-		var prev_mark: String = str(e.get_meta("qi_mark", ""))
-		if prev_mark != "" and prev_mark != active_hero_id:
-			e.set_meta("qi_mark", "")
-			if e.has_node("MarkLabel"):
-				e.get_node("MarkLabel").text = ""
-			var res_mult := 2.75 if int(save_data.get("hero_passives", {}).get("ye_shangye", 0)) > 0 else 2.2
-			var res_dmg := int(_get_hero_stat(active_hero_id, "atk") * res_mult)
-			base_dmg += res_dmg
-			sfx.play_sfx("resonance")
-			_spawn_ring_vfx(e.global_position, Color("#fde047"), 105.0)
-			_spawn_floating_text(e.global_position + Vector2(0, -82), "⚡ ผสานปราณ! +%d" % res_dmg, Color("#fde047"), true)
-			_award_spirit_jade(4)
-		else:
-			e.set_meta("qi_mark", active_hero_id)
-			if e.has_node("MarkLabel"):
-				e.get_node("MarkLabel").text = ("❄️" if active_hero_id == "bai_yueling" else ("🩸" if active_hero_id == "ye_shangye" else "⚡"))
+	base_dmg = int(round(float(base_dmg) * combat.get_damage_multiplier()))
+	if float(e.get_meta("vuln_timer", 0.0)) > 0.0:
+		base_dmg = int(round(float(base_dmg) * 1.25))
+	if float(e.get_meta("quicken_timer", 0.0)) > 0.0:
+		crit_chance = minf(1.0, crit_chance + 0.30)
 
-	var is_crit := randf() < crit_chance
+	if allow_reaction:
+		var hero_elem := CombatSystem.get_hero_element(active_hero_id)
+		var existing_elem: String = str(e.get_meta("elem_mark", ""))
+		var existing_timer: float = float(e.get_meta("elem_timer", 0.0))
+		if existing_elem != "" and existing_timer > 0.0 and existing_elem != hero_elem:
+			var react := CombatSystem.lookup_reaction(existing_elem, hero_elem)
+			if not react.is_empty():
+				e.set_meta("elem_mark", "")
+				e.set_meta("elem_timer", 0.0)
+				if e.has_node("MarkLabel"):
+					e.get_node("MarkLabel").text = ""
+				combat.reaction_count += 1
+				combat.add_combo(25.0, false)
+				var passive_mult := 1.25 if int(save_data.get("hero_passives", {}).get("ye_shangye", 0)) > 0 else 1.0
+				var r_col: Color = react["color"]
+				base_dmg = int(round(float(base_dmg) * float(react.get("dmg_mult", 1.0)) * passive_mult))
+				sfx.play_sfx("reaction")
+				_spawn_ring_vfx(e.global_position, r_col, 115.0)
+				_spawn_floating_text(e.global_position + Vector2(0, -82), "%s %s!" % [react["icon"], react["name"]], r_col, true)
+				_award_spirit_jade(4)
+
+				var r_id: String = str(react["id"])
+				var hero_atk := _get_hero_stat(active_hero_id, "atk")
+				if r_id == "overload":
+					e.set_meta("stun", maxf(float(e.get_meta("stun", 0.0)), float(react["stun"])))
+					var aoe_dmg := int(hero_atk * float(react["aoe_mult"]) * passive_mult)
+					for other in enemies.duplicate():
+						if is_instance_valid(other) and other != e and other.global_position.distance_to(e.global_position) <= float(react["aoe_radius"]):
+							var opush: Vector2 = (other.global_position - e.global_position).normalized()
+							other.set_meta("stun", maxf(float(other.get_meta("stun", 0.0)), float(react["stun"])))
+							_damage_enemy(other, aoe_dmg, opush, r_col, 0.2, true, false)
+				elif r_id == "superconduct":
+					e.set_meta("vuln_timer", float(react["vuln_duration"]))
+					var aoe_dmg := int(hero_atk * float(react["aoe_mult"]) * passive_mult)
+					for other in enemies.duplicate():
+						if is_instance_valid(other) and other != e and other.global_position.distance_to(e.global_position) <= float(react["aoe_radius"]):
+							other.set_meta("vuln_timer", float(react["vuln_duration"]))
+							var opush: Vector2 = (other.global_position - e.global_position).normalized()
+							_damage_enemy(other, aoe_dmg, opush, r_col, 0.2, true, false)
+				elif r_id == "burning":
+					e.set_meta("burn_timer", float(react["burn_duration"]))
+					e.set_meta("burn_tick", 0.5)
+					e.set_meta("burn_dmg", maxi(8, int(hero_atk * 0.35 * passive_mult)))
+				elif r_id == "quicken":
+					e.set_meta("quicken_timer", float(react["quicken_duration"]))
+				elif r_id == "frostbind":
+					e.set_meta("frostbind_timer", float(react["frostbind_duration"]))
+		elif is_skill:
+			e.set_meta("elem_mark", hero_elem)
+			e.set_meta("elem_timer", CombatSystem.ELEMENT_MARK_DURATION)
+			if e.has_node("MarkLabel"):
+				var einfo := CombatSystem.get_element_info(hero_elem)
+				var ml: Label = e.get_node("MarkLabel")
+				ml.text = str(einfo["icon"])
+				ml.add_theme_color_override("font_color", einfo["color"])
+
+	var counter_crit: bool = allow_reaction and combat.consume_perfect_dodge_crit()
+	var is_crit := counter_crit or (randf() < crit_chance)
 	var crit_mult := 2.15 if (active_hero_id == "bai_yueling" and int(save_data.get("hero_passives", {}).get("bai_yueling", 0)) > 0) else 1.80
+	if counter_crit:
+		crit_mult = maxf(crit_mult, CombatSystem.PERFECT_DODGE_CRIT_MULT)
+		_spawn_floating_text(e.global_position + Vector2(0, -96), "✨ สวนกลับพริบตา!", Color("#fde047"), true)
 	var dmg := int(base_dmg * (crit_mult if is_crit else 1.0))
+	if allow_reaction:
+		combat.add_combo(12.0 if is_skill else 6.0, true)
 	var hp: float = e.get_meta("hp") - dmg
 	e.set_meta("hp", hp)
 	e.set_meta("flash", 0.14)
@@ -1467,6 +1606,49 @@ func _process_enemies(delta: float):
 		var trap_cd: float = float(e.get_meta("trap_cd", 0.0))
 		if trap_cd > 0.0:
 			e.set_meta("trap_cd", trap_cd - delta)
+
+		var elem_timer: float = float(e.get_meta("elem_timer", 0.0))
+		if elem_timer > 0.0:
+			elem_timer -= delta
+			e.set_meta("elem_timer", maxf(0.0, elem_timer))
+			if elem_timer <= 0.0:
+				e.set_meta("elem_mark", "")
+				if e.has_node("MarkLabel"):
+					e.get_node("MarkLabel").text = ""
+
+		var vuln_t: float = float(e.get_meta("vuln_timer", 0.0))
+		if vuln_t > 0.0:
+			e.set_meta("vuln_timer", maxf(0.0, vuln_t - delta))
+
+		var quicken_t: float = float(e.get_meta("quicken_timer", 0.0))
+		if quicken_t > 0.0:
+			e.set_meta("quicken_timer", maxf(0.0, quicken_t - delta))
+
+		var burn_t: float = float(e.get_meta("burn_timer", 0.0))
+		if burn_t > 0.0:
+			burn_t -= delta
+			e.set_meta("burn_timer", maxf(0.0, burn_t))
+			var btick: float = float(e.get_meta("burn_tick", 0.5)) - delta
+			if btick <= 0.0:
+				e.set_meta("burn_tick", 0.5)
+				var bdmg: int = int(e.get_meta("burn_dmg", 10))
+				var bhp: float = float(e.get_meta("hp")) - float(bdmg)
+				e.set_meta("hp", bhp)
+				_spawn_floating_text(e.global_position + Vector2(0, -48), "🔥 %d" % bdmg, Color("#f97316"), false)
+				if bhp <= 0.0:
+					_damage_enemy(e, 1, Vector2.ZERO, Color("#f97316"), 0.0, false, false)
+					continue
+			else:
+				e.set_meta("burn_tick", btick)
+
+		var frost_t: float = float(e.get_meta("frostbind_timer", 0.0))
+		var enemy_spd_mult := spd_mult
+		if frost_t > 0.0:
+			e.set_meta("frostbind_timer", maxf(0.0, frost_t - delta))
+			sp.modulate = Color(0.45, 0.95, 1.0, 1.0)
+			if not def["is_boss"]:
+				continue
+			enemy_spd_mult *= 0.50
 
 		var flash: float = e.get_meta("flash")
 		if flash > 0.0:
@@ -1542,7 +1724,7 @@ func _process_enemies(delta: float):
 					else:
 						_start_boss_wave_attack(e, to_p.normalized())
 			elif dist > def["range"]:
-				e.velocity = to_p.normalized() * float(def["speed"]) * spd_mult
+				e.velocity = to_p.normalized() * float(def["speed"]) * enemy_spd_mult
 				e.move_and_slide()
 			elif atk_cd <= 0.0:
 				e.set_meta("atk_cd", 1.35 if def["is_boss"] else 1.65)
@@ -1558,9 +1740,13 @@ func _process_enemies(delta: float):
 
 
 func _enemy_hit_player(dmg: int, _src_pos: Vector2, is_boss: bool):
+	if combat.can_trigger_perfect_dodge():
+		_activate_perfect_dodge()
+		return
 	if invuln_timer > 0.0:
 		return
 	invuln_timer = 0.45
+	combat.on_player_damaged()
 	var final_dmg := int(round(float(dmg) * (0.82 if active_boons.has("jade_aegis") else 1.0)))
 	hero_hp[active_hero_id] = maxf(0.0, hero_hp[active_hero_id] - final_dmg)
 	shake_strength = 10.0 if is_boss else 6.0
@@ -1804,6 +1990,14 @@ func _refresh_hud():
 		jade_label.text = "💎 หยกปราณ: %d" % int(save_data.get("spirit_jade", 0))
 	if diff_btn:
 		diff_btn.text = "โหมด: ท้าทาย" if str(save_data.get("difficulty", "normal")) == "hard" else "โหมด: ปกติ"
+	if combo_panel:
+		var rdata: Dictionary = combat.get_rank_data()
+		combo_panel.visible = combat.combo_score > 0.0 or combat.perfect_dodge_crit_ready
+		combo_rank_label.text = "RANK %s · %d HITS" % [rdata["id"], combat.combo_hits]
+		combo_rank_label.add_theme_color_override("font_color", rdata["color"])
+		combo_sub_label.text = "ดาเมจ +%d%% · หยก +%d%%" % [int(round(float(rdata["dmg_bonus"]) * 100.0)), int(round(float(rdata["jade_bonus"]) * 100.0))]
+		combo_bar.value = combat.get_decay_ratio() * 100.0
+		dodge_ready_label.visible = combat.perfect_dodge_crit_ready
 
 
 func _trigger_victory():
@@ -1882,12 +2076,17 @@ func _start_slam_telegraph(e: CharacterBody2D, radius: float, dmg: int, windup: 
 	inner.scale = Vector2(0.05, 0.05)
 	outer.add_child(inner)
 
+	var tinfo := {"pos": target_pos, "radius": radius}
+	active_telegraphs.append(tinfo)
+
 	var tw := create_tween()
 	tw.tween_property(inner, "scale", Vector2(1.0, 1.0), windup)
-	tw.tween_callback(_execute_slam.bind(e, target_pos, radius, dmg, outer))
+	tw.tween_callback(_execute_slam.bind(e, target_pos, radius, dmg, outer, tinfo))
 
 
-func _execute_slam(e: Variant, pos: Vector2, radius: float, dmg: int, warn_node: Node2D):
+func _execute_slam(e: Variant, pos: Vector2, radius: float, dmg: int, warn_node: Node2D, tinfo: Dictionary = {}):
+	if not tinfo.is_empty():
+		active_telegraphs.erase(tinfo)
 	if is_instance_valid(warn_node):
 		warn_node.queue_free()
 	if not is_instance_valid(e) or game_over or victory:
@@ -1948,7 +2147,9 @@ func _process_enemy_projectiles(delta: float):
 			p.queue_free()
 			continue
 		if player.global_position.distance_to(p.global_position) < 32.0:
-			if invuln_timer > 0.0:
+			if combat.can_trigger_perfect_dodge():
+				_activate_perfect_dodge()
+			elif invuln_timer > 0.0:
 				sfx.play_sfx("dodge")
 				_spawn_floating_text(player.global_position + Vector2(0, -56), "⚡ หลบพ้น!", Color("#2dd4bf"), false)
 			else:
@@ -2154,7 +2355,7 @@ func _execute_eight_dir_storm(e: Variant, center: Vector2, warn_node: Node2D):
 
 
 func _award_spirit_jade(base_amt: int):
-	var mult := 1.5 if str(save_data.get("difficulty", "normal")) == "hard" else 1.0
+	var mult: float = (1.5 if str(save_data.get("difficulty", "normal")) == "hard" else 1.0) * combat.get_jade_multiplier()
 	var gain := maxi(1, int(round(float(base_amt) * mult)))
 	save_data["spirit_jade"] = int(save_data.get("spirit_jade", 0)) + gain
 	SaveManager.save_data(save_data, save_path)

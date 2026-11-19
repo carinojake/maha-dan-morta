@@ -34,6 +34,8 @@ func _ready():
 	_streams["resonance"] = _make_chord([587.33, 880.0, 1174.66, 1479.98], 0.35, 0.55)
 	_streams["shield_break"] = _make_sweep(980.0, 190.0, 0.25, 0.65, true)
 	_streams["laser_warn"] = _make_sweep(440.0, 880.0, 0.22, 0.35, false)
+	_streams["perfect_dodge"] = _make_chord([783.99, 1174.66, 1567.98, 2093.0], 0.42, 0.55)
+	_streams["reaction"] = _make_chord([392.0, 587.33, 880.0, 1318.5], 0.30, 0.55)
 
 	_bgm_normal = _make_xianxia_bgm_loop()
 	_bgm_boss = _make_boss_bgm_loop()
