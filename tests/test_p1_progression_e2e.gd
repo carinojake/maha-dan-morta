@@ -43,10 +43,10 @@ func _process(_delta: float) -> bool:
 	# 1. P1.1: 12 Boons + non-duplicate picker + stat effects
 	if not _check(CodexUI.BOON_DEFS.size() == 12, "BOON_DEFS must contain 12 boons"):
 		return true
-	var base_atk := _scene._get_hero_stat("bai_yueling", "atk")
-	var base_hp := _scene._get_hero_stat("bai_yueling", "max_hp")
-	var base_sp := _scene._get_hero_stat("bai_yueling", "max_sp")
-	var base_spd := _scene._get_hero_stat("bai_yueling", "speed")
+	var base_atk: float = _scene._get_hero_stat("bai_yueling", "atk")
+	var base_hp: float = _scene._get_hero_stat("bai_yueling", "max_hp")
+	var base_sp: float = _scene._get_hero_stat("bai_yueling", "max_sp")
+	var base_spd: float = _scene._get_hero_stat("bai_yueling", "speed")
 
 	_scene.active_boons["qi_surge"] = true
 	_scene.active_boons["swift_blade"] = true

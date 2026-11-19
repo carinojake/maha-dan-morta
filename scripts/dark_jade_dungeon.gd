@@ -2665,9 +2665,7 @@ func _set_codex_tab(idx: int):
 		codex_upgrade_scroll.visible = (codex_tab == 0)
 	if codex_party_scroll:
 		codex_party_scroll.visible = (codex_tab == 1)
-	if codex_chapters_scroll:
-		codex_chapters_scroll.visible = (codex_tab == 2)
-	elif codex_chapters_box:
+	if codex_chapters_box:
 		codex_chapters_box.visible = (codex_tab == 2)
 	if codex_gear_scroll:
 		codex_gear_scroll.visible = (codex_tab == 3)
@@ -3023,7 +3021,7 @@ func _rebuild_gear_list():
 	for item_id in EquipData.ITEM_ORDER:
 		var it := EquipData.get_item(item_id)
 		var is_owned := owned.has(item_id)
-		var is_eq := str(cur_slots.get(str(it["slot"]), "")) == item_id
+		var is_eq: bool = str(cur_slots.get(str(it["slot"]), "")) == item_id
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
 		codex_gear_box.add_child(row)
