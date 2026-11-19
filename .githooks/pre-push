@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "🛡️  [pre-push] Running Maha Dan Morta QA Suite (use --no-verify only for emergencies)..."
+exec "$(git rev-parse --show-toplevel)/tools/run_qa.sh"

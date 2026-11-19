@@ -16,3 +16,9 @@ export_presets.cfg
 # Mono-specific ignores
 .mono/
 build/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/

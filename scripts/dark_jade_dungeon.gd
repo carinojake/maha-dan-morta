@@ -556,9 +556,12 @@ func _build_hud():
 	banner_panel.add_child(banner_label)
 
 	var top_right := VBoxContainer.new()
-	top_right.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	top_right.position = Vector2(-248, 18)
-	top_right.custom_minimum_size = Vector2(228, 120)
+	top_right.anchor_left = 1.0
+	top_right.anchor_right = 1.0
+	top_right.offset_left = -332.0
+	top_right.offset_right = -16.0
+	top_right.offset_top = 16.0
+	top_right.offset_bottom = 260.0
 	top_right.add_theme_constant_override("separation", 6)
 	hud.add_child(top_right)
 
@@ -631,7 +634,7 @@ func _build_hud():
 	cb_vb.add_child(combo_bar)
 
 	dodge_ready_label = Label.new()
-	dodge_ready_label.text = "✨ สวนกลับพริบตาพร้อม! (คริ 100%)"
+	dodge_ready_label.text = "★ สวนกลับพริบตาพร้อม! (คริ 100%)"
 	dodge_ready_label.add_theme_font_size_override("font_size", 11)
 	dodge_ready_label.add_theme_color_override("font_color", Color("#fde047"))
 	dodge_ready_label.visible = false
@@ -1441,11 +1444,11 @@ func _activate_perfect_dodge() -> bool:
 	Engine.time_scale = combat.get_desired_time_scale(hitstop_timer)
 	sfx.play_sfx("perfect_dodge")
 	_spawn_ring_vfx(player.global_position, Color("#fde047"), 140.0)
-	_spawn_floating_text(player.global_position + Vector2(0, -78), "⏱️ หลบพริบตา! +30 ปราณ · คริ 100%", Color("#fde047"), true)
+	_spawn_floating_text(player.global_position + Vector2(0, -84), "⚡ หลบพริบตา! +30 ปราณ", Color("#fde047"), true)
 	if screen_flash:
-		screen_flash.color = Color(1.0, 0.85, 0.25, 0.34)
+		screen_flash.color = Color(1.0, 0.85, 0.25, 0.18)
 		var ftw := create_tween()
-		ftw.tween_property(screen_flash, "color:a", 0.0, 0.35)
+		ftw.tween_property(screen_flash, "color:a", 0.0, 0.24)
 	_refresh_hud()
 	return true
 
@@ -1550,7 +1553,7 @@ func _damage_enemy(e: CharacterBody2D, base_dmg: int, push_dir: Vector2, col: Co
 	var crit_mult := 2.15 if (active_hero_id == "bai_yueling" and int(save_data.get("hero_passives", {}).get("bai_yueling", 0)) > 0) else 1.80
 	if counter_crit:
 		crit_mult = maxf(crit_mult, CombatSystem.PERFECT_DODGE_CRIT_MULT)
-		_spawn_floating_text(e.global_position + Vector2(0, -96), "✨ สวนกลับพริบตา!", Color("#fde047"), true)
+		_spawn_floating_text(e.global_position + Vector2(0, -104), "★ สวนกลับพริบตา!", Color("#fde047"), true)
 	var dmg := int(base_dmg * (crit_mult if is_crit else 1.0))
 	if allow_reaction:
 		combat.add_combo(12.0 if is_skill else 6.0, true)
