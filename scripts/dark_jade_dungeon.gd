@@ -1321,6 +1321,10 @@ func _cast_skill_q(aim_dir: Vector2):
 			VfxStudio.spawn_crimson_ribbon_needles(fx_layer, player.global_position + aim_dir * 28.0, aim_dir.angle(), data["color"])
 		elif active_hero_id == "chen_xi":
 			VfxStudio.spawn_ink_shadow_cleave(fx_layer, player.global_position + aim_dir * 42.0, aim_dir.angle(), data["color"])
+		elif active_hero_id == "yu_han":
+			VfxStudio.spawn_thunder_spear_thrust(fx_layer, player.global_position + aim_dir * 34.0, aim_dir.angle(), data["color"])
+		elif active_hero_id == "zhao_yan":
+			VfxStudio.spawn_alchemy_soul_bolt(fx_layer, player.global_position + aim_dir * 30.0, aim_dir.angle(), data["color"])
 		else:
 			_spawn_slash_vfx(player.global_position + aim_dir * 65.0, aim_dir.angle(), data["vfx_attack"], data["color"], 1.35)
 		for e in enemies:
@@ -1354,6 +1358,10 @@ func _cast_skill_e():
 		VfxStudio.spawn_hellfire_wave_eruption(floor_layer, fx_layer, player.global_position, data["color"])
 	elif active_hero_id == "chen_xi":
 		VfxStudio.spawn_blood_qi_ignition(floor_layer, fx_layer, player.global_position, data["color"])
+	elif active_hero_id == "yu_han":
+		VfxStudio.spawn_solar_thunder_ring(floor_layer, fx_layer, player.global_position, data["color"])
+	elif active_hero_id == "zhao_yan":
+		VfxStudio.spawn_soul_siphon_cauldron_ring(floor_layer, fx_layer, player.global_position, data["color"])
 
 	for i in range(6):
 		var ang := (float(i) / 6.0) * TAU
@@ -1431,6 +1439,10 @@ func _cast_skill_r():
 		VfxStudio.spawn_demon_king_chain_abyss(floor_layer, fx_layer, player.global_position, col)
 	elif active_hero_id == "chen_xi":
 		VfxStudio.spawn_heaven_severing_blood_slash(floor_layer, fx_layer, player.global_position, col)
+	elif active_hero_id == "yu_han":
+		VfxStudio.spawn_nine_heavens_spear_judgment(floor_layer, fx_layer, player.global_position, col)
+	elif active_hero_id == "zhao_yan":
+		VfxStudio.spawn_primordial_cauldron_nova(floor_layer, fx_layer, player.global_position, col)
 
 	if bool(save_data.get("cutin_enabled", true)) and cutin_overlay and cutin_overlay.has_cutin(active_hero_id):
 		if cutin_overlay.play(active_hero_id) and hitstop_timer <= 0.0:

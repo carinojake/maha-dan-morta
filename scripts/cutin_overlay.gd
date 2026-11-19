@@ -67,6 +67,28 @@ const CUTINS := {
 		"subtitle": "เฉินซี · กระบี่หักโลหิต",
 		"accent": Color("#ef4444"),
 	},
+	"yu_han": {
+		"sheet": "res://assets/vfx/cutin_yu_han_r_sheet.jpg",
+		"audio": "res://assets/vfx/cutin_yu_han_r.wav",
+		"cols": 6,
+		"rows": 5,
+		"frames": 30,
+		"fps": 17.5,
+		"title": "★ ทัณฑ์สวรรค์เก้าชั้นฟ้า",
+		"subtitle": "อวี่หาน · เทพหอกอัสนีสุริยัน",
+		"accent": Color("#fbbf24"),
+	},
+	"zhao_yan": {
+		"sheet": "res://assets/vfx/cutin_zhao_yan_r_sheet.jpg",
+		"audio": "res://assets/vfx/cutin_zhao_yan_r.wav",
+		"cols": 6,
+		"rows": 5,
+		"frames": 30,
+		"fps": 17.5,
+		"title": "★ มหาเตาหลอมฟื้นกายา",
+		"subtitle": "จ้าวเหยียน · ผู้อาวุโสเตาโอสถ",
+		"accent": Color("#22c55e"),
+	},
 }
 
 var panel: PanelContainer

@@ -1369,3 +1369,401 @@ static func spawn_heaven_severing_blood_slash(floor_parent: Node2D, fx_parent: N
 	ftw.tween_interval(1.0)
 	ftw.tween_property(slash_fx, "modulate:a", 0.0, 0.35)
 	ftw.tween_callback(slash_fx.queue_free)
+
+
+# 22. หอกทะลวงอัสนีสุริยัน (Yu Han Skill [Q])
+static func spawn_thunder_spear_thrust(fx_parent: Node2D, pos: Vector2, angle: float, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var gold := Color("#fbbf24")
+	var bright := Color("#fef08a")
+	var lightning_col := Color("#93c5fd")
+
+	var root := Node2D.new()
+	root.position = pos
+	root.rotation = angle
+	fx_parent.add_child(root)
+
+	var outer_spear := Polygon2D.new()
+	outer_spear.material = add_mat
+	outer_spear.polygon = PackedVector2Array([
+		Vector2(-16, -7), Vector2(128, -9), Vector2(165, 0), Vector2(128, 9), Vector2(-16, 7)
+	])
+	outer_spear.color = Color(gold.r, gold.g, gold.b, 0.85)
+	root.add_child(outer_spear)
+
+	var core_spear := Polygon2D.new()
+	core_spear.material = add_mat
+	core_spear.polygon = PackedVector2Array([
+		Vector2(-10, -3), Vector2(124, -3.5), Vector2(158, 0), Vector2(124, 3.5), Vector2(-10, 3)
+	])
+	core_spear.color = bright
+	root.add_child(core_spear)
+
+	for s_i in range(2):
+		var side := -1.0 if s_i == 0 else 1.0
+		var arc := Line2D.new()
+		arc.material = add_mat
+		var apts := PackedVector2Array()
+		for k in range(7):
+			var t := float(k) / 6.0
+			apts.append(Vector2(lerpf(0.0, 155.0, t), side * (10.0 + sin(t * TAU * 1.5) * 14.0)))
+		arc.points = apts
+		arc.width = 3.0
+		arc.default_color = lightning_col
+		root.add_child(arc)
+
+	var fwd := Vector2(cos(angle), sin(angle)) * 70.0
+	var tw := root.create_tween()
+	tw.tween_property(root, "position", pos + fwd, 0.28).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(root, "modulate:a", 0.0, 0.28)
+	tw.tween_callback(root.queue_free)
+
+
+# 23. วงแหวนหอกอัสนีสุริยัน + สายฟ้าฟาด (Yu Han Skill [E])
+static func spawn_solar_thunder_ring(floor_parent: Node2D, fx_parent: Node2D, pos: Vector2, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var gold := Color("#fbbf24")
+	var bright := Color("#fef08a")
+	var sky_blue := Color("#93c5fd")
+
+	var seal := Node2D.new()
+	seal.position = pos
+	floor_parent.add_child(seal)
+
+	var ring := Line2D.new()
+	ring.material = add_mat
+	var rpts := _make_ellipse(185.0, 130.0, 36)
+	rpts.append(rpts[0])
+	ring.points = rpts
+	ring.width = 4.2
+	ring.default_color = gold
+	seal.add_child(ring)
+
+	for i in range(8):
+		var a := (float(i) / 8.0) * TAU
+		var crack := Line2D.new()
+		crack.material = add_mat
+		crack.points = PackedVector2Array([
+			Vector2.ZERO,
+			Vector2(cos(a) * 175.0, sin(a) * 122.0),
+		])
+		crack.width = 2.8
+		crack.default_color = bright if i % 2 == 0 else gold
+		seal.add_child(crack)
+
+	var stw := seal.create_tween()
+	stw.tween_property(seal, "scale", Vector2(1.12, 1.12), 0.78)
+	stw.parallel().tween_property(seal, "modulate:a", 0.0, 0.78)
+	stw.tween_callback(seal.queue_free)
+
+	var fx := Node2D.new()
+	fx.position = pos
+	fx_parent.add_child(fx)
+
+	var arc := Line2D.new()
+	arc.material = add_mat
+	var apts := PackedVector2Array()
+	for i in range(28):
+		var t := lerpf(-0.4, TAU - 0.8, float(i) / 27.0)
+		apts.append(Vector2(cos(t) * 150.0, sin(t) * 105.0 - 20.0))
+	arc.points = apts
+	arc.width = 6.5
+	arc.default_color = bright
+	fx.add_child(arc)
+
+	# Vertical blue-white sky thunderbolt slamming into center
+	var bolt := Line2D.new()
+	bolt.material = add_mat
+	var bpts := PackedVector2Array()
+	for s in range(9):
+		var t := float(s) / 8.0
+		var x_j := 0.0 if (s == 0 or s == 8) else randf_range(-16.0, 16.0)
+		bpts.append(Vector2(x_j, lerpf(-260.0, 0.0, t)))
+	bolt.points = bpts
+	bolt.width = 5.5
+	bolt.default_color = sky_blue
+	fx.add_child(bolt)
+
+	var burst := Polygon2D.new()
+	burst.material = add_mat
+	burst.polygon = _make_star_poly(78.0, 26.0, 10)
+	burst.color = bright
+	burst.position = Vector2(0.0, -14.0)
+	fx.add_child(burst)
+
+	var ftw := fx.create_tween()
+	ftw.tween_property(fx, "rotation", 0.65, 0.45)
+	ftw.tween_property(fx, "modulate:a", 0.0, 0.33)
+	ftw.tween_callback(fx.queue_free)
+
+
+# 24. ทัณฑ์สวรรค์เก้าชั้นฟ้า + ฝนหอกสุริยัน (Yu Han Skill [R])
+static func spawn_nine_heavens_spear_judgment(floor_parent: Node2D, fx_parent: Node2D, pos: Vector2, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var gold := Color("#fbbf24")
+	var bright := Color("#fef08a")
+	var sky_blue := Color("#93c5fd")
+
+	var halo := Node2D.new()
+	halo.position = pos
+	floor_parent.add_child(halo)
+
+	for spec in [[228.0, 160.0, 4.5, gold], [168.0, 118.0, 3.0, bright]]:
+		var ring := Line2D.new()
+		ring.material = add_mat
+		var rpts := _make_ellipse(float(spec[0]), float(spec[1]), 40)
+		rpts.append(rpts[0])
+		ring.points = rpts
+		ring.width = float(spec[2])
+		ring.default_color = spec[3]
+		halo.add_child(ring)
+
+	for i in range(12):
+		var a := (float(i) / 12.0) * TAU
+		var spoke := Line2D.new()
+		spoke.material = add_mat
+		spoke.points = PackedVector2Array([
+			Vector2(cos(a) * 62.0, sin(a) * 43.0),
+			Vector2(cos(a) * 224.0, sin(a) * 157.0),
+		])
+		spoke.width = 2.6
+		spoke.default_color = bright if i % 2 == 0 else gold
+		halo.add_child(spoke)
+
+	var htw := halo.create_tween()
+	htw.tween_property(halo, "rotation", 0.50, 1.15)
+	htw.tween_property(halo, "modulate:a", 0.0, 0.22)
+	htw.tween_callback(halo.queue_free)
+
+	var volley := Node2D.new()
+	volley.position = pos
+	fx_parent.add_child(volley)
+
+	for b_i in range(4):
+		var ba := (float(b_i) / 4.0) * TAU + 0.35
+		var bx := cos(ba) * 145.0
+		var by := sin(ba) * 100.0
+		var bolt := Line2D.new()
+		bolt.material = add_mat
+		var bpts := PackedVector2Array()
+		for s in range(7):
+			var t := float(s) / 6.0
+			bpts.append(Vector2(bx + randf_range(-14.0, 14.0), lerpf(by - 250.0, by, t)))
+		bolt.points = bpts
+		bolt.width = 4.0
+		bolt.default_color = sky_blue if b_i % 2 == 0 else bright
+		volley.add_child(bolt)
+
+	# 10 radiant Golden Solar Spears raining diagonally into the arena
+	for i in range(10):
+		var a := (float(i) / 10.0) * TAU
+		var dst := Vector2(cos(a) * 168.0, sin(a) * 114.0)
+		var spear := Polygon2D.new()
+		spear.material = add_mat
+		spear.polygon = PackedVector2Array([
+			Vector2(-4, -95), Vector2(0, -110), Vector2(4, -95), Vector2(5, 10), Vector2(0, 26), Vector2(-5, 10)
+		])
+		spear.color = bright if i % 2 == 0 else gold
+		spear.position = dst + Vector2(-42.0, -230.0)
+		spear.rotation = 0.18
+		volley.add_child(spear)
+		var stw := spear.create_tween()
+		stw.tween_interval(float(i) * 0.03)
+		stw.tween_property(spear, "position", dst, 0.13).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+
+	var vtw := volley.create_tween()
+	vtw.tween_interval(1.0)
+	vtw.tween_property(volley, "modulate:a", 0.0, 0.35)
+	vtw.tween_callback(volley.queue_free)
+
+
+# 25. ลำแสงโอสถวิญญาณมรกต (Zhao Yan Skill [Q])
+static func spawn_alchemy_soul_bolt(fx_parent: Node2D, pos: Vector2, angle: float, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var emerald := Color("#4ade80")
+	var pale := Color("#bbf7d0")
+
+	var root := Node2D.new()
+	root.position = pos
+	root.rotation = angle
+	fx_parent.add_child(root)
+
+	var outer_beam := Polygon2D.new()
+	outer_beam.material = add_mat
+	outer_beam.polygon = PackedVector2Array([
+		Vector2(-8, -7), Vector2(115, -5), Vector2(145, 0), Vector2(115, 5), Vector2(-8, 7)
+	])
+	outer_beam.color = Color(emerald.r, emerald.g, emerald.b, 0.85)
+	root.add_child(outer_beam)
+
+	var inner_beam := Polygon2D.new()
+	inner_beam.material = add_mat
+	inner_beam.polygon = PackedVector2Array([
+		Vector2(-4, -2.5), Vector2(112, -2.5), Vector2(140, 0), Vector2(112, 2.5), Vector2(-4, 2.5)
+	])
+	inner_beam.color = pale
+	root.add_child(inner_beam)
+
+	for i in range(3):
+		var side := float(i - 1)
+		var tendril := Line2D.new()
+		tendril.material = add_mat
+		var tpts := PackedVector2Array()
+		for k in range(7):
+			var t := float(k) / 6.0
+			tpts.append(Vector2(lerpf(0.0, 140.0, t), side * (8.0 + t * 22.0) + randf_range(-6.0, 6.0)))
+		tendril.points = tpts
+		tendril.width = 2.8
+		tendril.default_color = emerald
+		root.add_child(tendril)
+
+	var fwd := Vector2(cos(angle), sin(angle)) * 65.0
+	var tw := root.create_tween()
+	tw.tween_property(root, "position", pos + fwd, 0.28).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(root, "modulate:a", 0.0, 0.28)
+	tw.tween_callback(root.queue_free)
+
+
+# 26. วงเตาโอสถดูดวิญญาณ (Zhao Yan Skill [E])
+static func spawn_soul_siphon_cauldron_ring(floor_parent: Node2D, fx_parent: Node2D, pos: Vector2, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var emerald := Color("#22c55e")
+	var glow_green := Color("#4ade80")
+	var amber := Color("#fb923c")
+
+	var seal := Node2D.new()
+	seal.position = pos
+	floor_parent.add_child(seal)
+
+	var ring := Line2D.new()
+	ring.material = add_mat
+	var rpts := _make_ellipse(182.0, 128.0, 36)
+	rpts.append(rpts[0])
+	ring.points = rpts
+	ring.width = 4.0
+	ring.default_color = emerald
+	seal.add_child(ring)
+
+	var stw := seal.create_tween()
+	stw.tween_property(seal, "rotation", -0.55, 0.80)
+	stw.parallel().tween_property(seal, "modulate:a", 0.0, 0.80)
+	stw.tween_callback(seal.queue_free)
+
+	var fx := Node2D.new()
+	fx.position = pos
+	fx_parent.add_child(fx)
+
+	for i in range(8):
+		var a := (float(i) / 8.0) * TAU
+		var flame := Polygon2D.new()
+		flame.material = add_mat
+		flame.polygon = PackedVector2Array([
+			Vector2(-12, 4), Vector2(-6, -42), Vector2(0, -72), Vector2(6, -38), Vector2(12, 4)
+		])
+		flame.color = glow_green if i % 2 == 0 else amber
+		flame.position = Vector2(cos(a) * 155.0, sin(a) * 108.0)
+		flame.scale = Vector2(0.4, 0.15)
+		fx.add_child(flame)
+		var ftw := flame.create_tween()
+		ftw.tween_interval(float(i) * 0.025)
+		ftw.tween_property(flame, "scale", Vector2(1.0, 1.0), 0.20)
+
+	# 6 glowing green spirit wisps spiraling inward toward pos
+	for w_i in range(6):
+		var wa := (float(w_i) / 6.0) * TAU
+		var wisp := Polygon2D.new()
+		wisp.material = add_mat
+		wisp.polygon = _make_ellipse(9.0, 12.0, 10)
+		wisp.color = Color("#bbf7d0")
+		wisp.position = Vector2(cos(wa) * 185.0, sin(wa) * 130.0 - 22.0)
+		fx.add_child(wisp)
+		var wtw := wisp.create_tween()
+		wtw.tween_property(wisp, "position", Vector2(0.0, -24.0), 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+
+	var end_tw := fx.create_tween()
+	end_tw.tween_interval(0.45)
+	end_tw.tween_property(fx, "modulate:a", 0.0, 0.35)
+	end_tw.tween_callback(fx.queue_free)
+
+
+# 27. มหาเตาหลอมวิญญาณมรกต (Zhao Yan Skill [R])
+static func spawn_primordial_cauldron_nova(floor_parent: Node2D, fx_parent: Node2D, pos: Vector2, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var emerald := Color("#22c55e")
+	var bright := Color("#86efac")
+	var core_green := Color("#dcfce7")
+
+	var circle := Node2D.new()
+	circle.position = pos
+	floor_parent.add_child(circle)
+
+	for spec in [[225.0, 158.0, 4.5, emerald], [164.0, 115.0, 3.0, bright]]:
+		var ring := Line2D.new()
+		ring.material = add_mat
+		var rpts := _make_ellipse(float(spec[0]), float(spec[1]), 40)
+		rpts.append(rpts[0])
+		ring.points = rpts
+		ring.width = float(spec[2])
+		ring.default_color = spec[3]
+		circle.add_child(ring)
+
+	var ctw := circle.create_tween()
+	ctw.tween_property(circle, "rotation", 0.65, 1.15)
+	ctw.tween_property(circle, "modulate:a", 0.0, 0.22)
+	ctw.tween_callback(circle.queue_free)
+
+	var nova := Node2D.new()
+	nova.position = pos
+	fx_parent.add_child(nova)
+
+	# Expanding Emerald Soul-Nova Starburst
+	var star := Polygon2D.new()
+	star.material = add_mat
+	star.polygon = _make_star_poly(145.0, 54.0, 14)
+	star.color = Color("#4ade80")
+	star.position = Vector2(0.0, -32.0)
+	star.scale = Vector2(0.25, 0.25)
+	nova.add_child(star)
+	var stw := star.create_tween()
+	stw.tween_property(star, "scale", Vector2(1.35, 1.35), 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+	var inner_star := Polygon2D.new()
+	inner_star.material = add_mat
+	inner_star.polygon = _make_star_poly(82.0, 30.0, 10)
+	inner_star.color = core_green
+	inner_star.position = Vector2(0.0, -32.0)
+	nova.add_child(inner_star)
+
+	# 6 crackling emerald lightning bolts
+	for b_i in range(6):
+		var ba := (float(b_i) / 6.0) * TAU
+		var bolt := Line2D.new()
+		bolt.material = add_mat
+		var bpts := PackedVector2Array()
+		for s in range(6):
+			var t := float(s) / 5.0
+			var rad := lerpf(24.0, 210.0, t)
+			bpts.append(Vector2(cos(ba) * rad + randf_range(-10.0, 10.0), sin(ba) * rad * 0.72 - 32.0 + randf_range(-10.0, 10.0)))
+		bolt.points = bpts
+		bolt.width = 3.6
+		bolt.default_color = bright if b_i % 2 == 0 else Color("#4ade80")
+		nova.add_child(bolt)
+
+	# 14 glowing green spirit wisps surging outward
+	for p_i in range(14):
+		var pa := (float(p_i) / 14.0) * TAU
+		var wisp := Polygon2D.new()
+		wisp.material = add_mat
+		wisp.polygon = PackedVector2Array([
+			Vector2(0, -16), Vector2(8, -4), Vector2(5, 12), Vector2(-5, 12), Vector2(-8, -4)
+		])
+		wisp.color = core_green if p_i % 2 == 0 else bright
+		wisp.position = Vector2(cos(pa) * 36.0, sin(pa) * 24.0 - 24.0)
+		nova.add_child(wisp)
+		var ptw := wisp.create_tween()
+		ptw.tween_property(wisp, "position", Vector2(cos(pa) * 215.0, sin(pa) * 148.0 - 48.0), 1.05).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+	var ntw := nova.create_tween()
+	ntw.tween_interval(1.0)
+	ntw.tween_property(nova, "modulate:a", 0.0, 0.35)
+	ntw.tween_callback(nova.queue_free)

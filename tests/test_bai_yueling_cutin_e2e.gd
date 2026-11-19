@@ -1,6 +1,7 @@
 extends SceneTree
 
 const SaveManager = preload("res://scripts/save_manager.gd")
+const HeroData = preload("res://scripts/hero_data.gd")
 
 const VIEWPORT_W := 1280.0
 const VIEWPORT_H := 720.0
@@ -47,7 +48,7 @@ func _process(_delta: float) -> bool:
 			return true
 
 		var cutin: Control = _scene.cutin_overlay
-		for hid in ["bai_yueling", "ye_shangye", "song_ren", "chen_xi", "hei_shan"]:
+		for hid in HeroData.HERO_ORDER:
 			if not _check(cutin.has_cutin(hid), "cutin_overlay must register %s" % hid):
 				return true
 			_scene._switch_hero(hid, false)
@@ -102,7 +103,7 @@ func _process(_delta: float) -> bool:
 
 		Engine.time_scale = 1.0
 		_scene.queue_free()
-		print("BAI_YUELING_CUTIN_E2E_PASSED: All 5 hero Cut-ins (bai_yueling, ye_shangye, song_ren, chen_xi, hei_shan), VFX, bounds, and toggle persistence verified!")
+		print("ALL_7_HEROES_CUTIN_E2E_PASSED: Full 7/7 hero Cut-in roster, VFX, bounds, and toggle persistence verified!")
 		quit(0)
 		return true
 	return false
