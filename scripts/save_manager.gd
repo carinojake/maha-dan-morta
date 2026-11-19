@@ -1,6 +1,7 @@
 extends RefCounted
 
 const HeroData = preload("res://scripts/hero_data.gd")
+const EquipData = preload("res://scripts/equip_data.gd")
 const DEFAULT_PATH := "user://save_data.json"
 
 static func _default_costumes() -> Dictionary:
@@ -48,6 +49,8 @@ static func load_data(path: String = DEFAULT_PATH) -> Dictionary:
 		"cutin_enabled": true,
 		"cutin_mode": "full",
 		"bgm_enabled": true,
+		"owned_gear": ["jade_sword", "spirit_orb"],
+		"hero_gear": {},
 	}
 	if not FileAccess.file_exists(path):
 		return data
@@ -87,6 +90,29 @@ static func load_data(path: String = DEFAULT_PATH) -> Dictionary:
 		cmode = "full" if data["cutin_enabled"] else "skip"
 	data["cutin_mode"] = cmode
 	data["bgm_enabled"] = bool(d.get("bgm_enabled", true))
+	if d.has("owned_gear") and typeof(d["owned_gear"]) == TYPE_ARRAY:
+		var og: Array = []
+		for item_id in d["owned_gear"]:
+			var k := str(item_id)
+			if EquipData.ITEMS.has(k) and not og.has(k):
+				og.append(k)
+		for starter in ["jade_sword", "spirit_orb"]:
+			if not og.has(starter):
+				og.append(starter)
+		data["owned_gear"] = og
+	if d.has("hero_gear") and typeof(d["hero_gear"]) == TYPE_DICTIONARY:
+		var hg: Dictionary = {}
+		for hid in HeroData.HERO_ORDER:
+			var raw_slots: Variant = d["hero_gear"].get(hid, {})
+			if typeof(raw_slots) == TYPE_DICTIONARY:
+				var clean_slots: Dictionary = {}
+				for slot_k in [EquipData.SLOT_WEAPON, EquipData.SLOT_RELIC]:
+					var item_id := str((raw_slots as Dictionary).get(slot_k, ""))
+					if EquipData.ITEMS.has(item_id) and data["owned_gear"].has(item_id):
+						clean_slots[slot_k] = item_id
+				if not clean_slots.is_empty():
+					hg[hid] = clean_slots
+		data["hero_gear"] = hg
 	data["cutin_enabled"] = cmode != "skip"
 	return data
 

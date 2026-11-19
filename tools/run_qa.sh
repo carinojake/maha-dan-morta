@@ -19,6 +19,7 @@ TESTS=(
   "tests/test_7heroes_costumes_e2e.gd"
   "tests/test_ch3_and_meta_e2e.gd"
   "tests/test_100_floors_e2e.gd"
+  "tests/test_p1_progression_e2e.gd"
 )
 
 if [[ ! -d ".godot/imported" ]]; then

@@ -9,6 +9,7 @@ const MonsterData = preload("res://scripts/monster_data.gd")
 const CodexUI = preload("res://scripts/codex_ui.gd")
 const CombatSystem = preload("res://scripts/combat_system.gd")
 const CutinOverlay = preload("res://scripts/cutin_overlay.gd")
+const EquipData = preload("res://scripts/equip_data.gd")
 const CUTIN_MODES := ["full", "boss", "skip"]
 const CUTIN_MODE_LABELS := {
 	"full": "★ คัตอิน: เต็มจอ",
@@ -128,6 +129,9 @@ var boon_overlay: ColorRect
 var boon_btns: Array = []
 var boon_choices: Array = []
 var active_boons: Dictionary = {}
+var phoenix_revive_used: bool = false
+var codex_gear_scroll: ScrollContainer
+var codex_gear_box: VBoxContainer
 var boon_granted_rooms: Dictionary = {}
 var boss_rush_mode: bool = false
 var boss_panel: PanelContainer
@@ -214,17 +218,20 @@ func _get_hero_tex(hid: String, key: String, fallback: Texture2D = null) -> Text
 func _get_hero_stat(hid: String, key: String) -> float:
 	var base := float(HeroData.HEROES[hid][key])
 	var cu: Dictionary = save_data.get("core_upgrades", {})
+	var gear := EquipData.get_bonuses_for_hero(save_data.get("hero_gear", {}), hid)
 	if key == "max_hp":
-		return base + float(cu.get("hp_lv", 0)) * 25.0
+		return base + float(cu.get("hp_lv", 0)) * 25.0 + float(gear["max_hp"])
 	elif key == "max_sp":
-		return base + float(cu.get("sp_lv", 0)) * 15.0
+		return base + float(cu.get("sp_lv", 0)) * 15.0 + float(gear["max_sp"]) + (30.0 if active_boons.has("qi_surge") else 0.0)
 	elif key == "atk":
-		var val := base + float(cu.get("atk_lv", 0)) * 6.0
+		var val := base + float(cu.get("atk_lv", 0)) * 6.0 + float(gear["atk"])
 		if active_boons.has("lightning_edge"):
 			val *= 1.22
 		return val
 	elif key == "crit":
-		return base + (0.18 if active_boons.has("crit_heaven") else 0.0)
+		return base + float(gear["crit"]) + (0.18 if active_boons.has("crit_heaven") else 0.0)
+	elif key == "speed":
+		return base * (1.15 if active_boons.has("swift_blade") else 1.0)
 	return base
 
 
@@ -768,6 +775,8 @@ func _build_hud():
 	codex_party_scroll = codex_refs["party_scroll"]
 	codex_party_box = codex_refs["party_box"]
 	codex_chapters_box = codex_refs["chapters_box"]
+	codex_gear_scroll = codex_refs.get("gear_scroll")
+	codex_gear_box = codex_refs.get("gear_box")
 	codex_chapter_btns = codex_refs["chapter_btns"]
 	codex_cutin_btn = codex_refs["cutin_btn"]
 	codex_bgm_btn = codex_refs.get("bgm_btn")
@@ -975,7 +984,11 @@ func _spawn_room_wave(room_idx: int):
 		mb.add_child(mb_lbl)
 		_spawn_enemy("puppet" if chapter >= 5 else "cultist", Vector2(bx + 11.2, 2.4) * TILE_SIZE)
 		_spawn_enemy("hound", Vector2(bx + 11.2, 6.6) * TILE_SIZE)
-		_show_banner("🛡️ มินิบอสชั้นที่ %d: %s! ใช้ [E]/[R] ทะลวงเกราะ!" % [floor_no, cdata["miniboss"]], 2.8)
+		boss_name_label.text = "🛡️ มินิบอส: %s" % str(cdata["miniboss"]).split(" (")[0]
+		boss_bar.max_value = float(mb.get_meta("max_hp"))
+		boss_bar.value = float(mb.get_meta("hp"))
+		boss_panel.visible = true
+		_show_boss_warning(str(cdata["miniboss"]).split(" (")[0], true)
 	elif current_room in [5, 6, 7]:
 		room_label.text = "ชั้นที่ %d/100 — บทที่ %d: %s · %s (%d/10) [%s]" % [floor_no, chapter, ch_title, zone_name, current_room + 1, cdata["mob_b"]]
 		_spawn_enemy("puppet", Vector2(bx + 8.8, 2.6) * TILE_SIZE)
@@ -1016,7 +1029,7 @@ func _spawn_room_wave(room_idx: int):
 		boss_bar.max_value = bhp
 		boss_bar.value = bhp
 		boss_panel.visible = true
-		_show_banner("☠️ บอสประจำบทที่ %d: %s ปรากฏตัว!" % [chapter, cdata["boss"]], 2.8)
+		_show_boss_warning(str(cdata["boss"]), false)
 
 
 func _spawn_enemy(kind: String, pos: Vector2):
@@ -1208,7 +1221,8 @@ func _process(delta: float):
 		return
 	Engine.time_scale = desired_scale
 
-	hero_sp[active_hero_id] = minf(_get_hero_stat(active_hero_id, "max_sp"), hero_sp[active_hero_id] + 9.0 * delta)
+	var sp_rate := 9.0 * (1.35 if active_boons.has("qi_surge") else 1.0)
+	hero_sp[active_hero_id] = minf(_get_hero_stat(active_hero_id, "max_sp"), hero_sp[active_hero_id] + sp_rate * delta)
 	q_cd = maxf(0.0, q_cd - delta)
 	e_cd = maxf(0.0, e_cd - delta)
 	r_cd = maxf(0.0, r_cd - delta)
@@ -1713,7 +1727,9 @@ func _damage_enemy(e: CharacterBody2D, base_dmg: int, push_dir: Vector2, col: Co
 			_spawn_floating_text(e.global_position + Vector2(0, -64), "🛡️ -%d" % int(sh_dmg), Color("#38bdf8"), false)
 		return
 
-	base_dmg = int(round(float(base_dmg) * combat.get_damage_multiplier()))
+	base_dmg = int(round(float(base_dmg) * combat.get_damage_multiplier() * (1.15 if active_boons.has("frost_bite") else 1.0)))
+	if active_boons.has("frost_bite"):
+		e.set_meta("slow_timer", 1.2)
 	if float(e.get_meta("vuln_timer", 0.0)) > 0.0:
 		base_dmg = int(round(float(base_dmg) * 1.25))
 	if float(e.get_meta("quicken_timer", 0.0)) > 0.0:
@@ -1725,6 +1741,9 @@ func _damage_enemy(e: CharacterBody2D, base_dmg: int, push_dir: Vector2, col: Co
 		var existing_timer: float = float(e.get_meta("elem_timer", 0.0))
 		if existing_elem != "" and existing_timer > 0.0 and existing_elem != hero_elem:
 			var react := CombatSystem.lookup_reaction(existing_elem, hero_elem)
+			if not react.is_empty() and active_boons.has("elemental_mastery"):
+				react = react.duplicate()
+				react["bonus_dmg"] = int(round(float(react["bonus_dmg"]) * 1.35))
 			if not react.is_empty():
 				e.set_meta("elem_mark", "")
 				e.set_meta("elem_timer", 0.0)
@@ -1815,8 +1834,10 @@ func _damage_enemy(e: CharacterBody2D, base_dmg: int, push_dir: Vector2, col: Co
 		if was_mini:
 			_award_spirit_jade(15)
 			_spawn_floating_text(player.global_position + Vector2(0, -78), "+15 💎 หยกปราณ!", Color("#5eead4"), true)
+			_grant_boss_gear_drop(false)
 		if was_boss:
 			_award_spirit_jade(35)
+			_grant_boss_gear_drop(true)
 			_trigger_victory()
 
 
@@ -1903,6 +1924,8 @@ func _process_enemies(delta: float):
 
 		if def["is_boss"] and not bool(e.get_meta("phase2_done", false)) and float(e.get_meta("hp")) < float(e.get_meta("max_hp")) * 0.5:
 			e.set_meta("phase2_done", true)
+			if boss_name_label:
+				boss_name_label.add_theme_color_override("font_color", Color("#ef4444"))
 			boss_name_label.text = "☠️ %s (เฟส 2 — %s!)" % [cdata["boss"], cdata["ult_name"]]
 			_show_banner("🔥 เฟส 2! ท่าไม้ตายบอส: %s! พุ่งเข้าจุดปลอดภัยตรงกลาง!" % cdata["ult_name"], 3.0)
 			_spawn_ring_vfx(e.global_position, Color("#ef4444"), 240.0)
@@ -1987,6 +2010,16 @@ func _enemy_hit_player(dmg: int, _src_pos: Vector2, is_boss: bool):
 			if hero_hp[hid] > 0.0:
 				_switch_hero(hid, true)
 				return
+		if active_boons.has("phoenix_rebirth") and not phoenix_revive_used:
+			phoenix_revive_used = true
+			var rev_hp := _get_hero_stat(active_hero_id, "max_hp") * 0.45
+			hero_hp[active_hero_id] = rev_hp
+			invuln_timer = 1.6
+			sfx.play_sfx("resonance")
+			_spawn_ring_vfx(player.global_position, Color("#fb923c"), 160.0)
+			_show_banner("🔥 หงส์เพลิงคืนชีพ! ฟื้นฟูพลัง 45%!", 2.2)
+			_refresh_hud()
+			return
 		_trigger_defeat()
 
 
@@ -2023,7 +2056,7 @@ func _check_room_progression():
 			_spawn_heal_orb(Vector2(orb_x, 4.5 * TILE_SIZE))
 			var floor_no := ChapterData.get_floor_number(chapter, current_room)
 			_show_banner("✨ ชั้นที่ %d/100 เคลียร์! (+5 💎) เก็บโอสถหยกแล้วเดินไปทางขวา" % floor_no, 2.8)
-			if (current_room == 4 or current_room == 8) and not boon_granted_rooms.has(current_room):
+			if (current_room == 2 or current_room == 4 or current_room == 6 or current_room == 8) and not boon_granted_rooms.has(current_room):
 				boon_granted_rooms[current_room] = true
 				_open_boon_picker()
 
@@ -2123,12 +2156,14 @@ func _process_heal_orbs():
 		if not is_instance_valid(orb):
 			heal_orbs.erase(orb)
 			continue
-		if player.global_position.distance_to(orb.global_position) < 48.0:
+		var pickup_dist := 160.0 if active_boons.has("jade_magnet") else 48.0
+		if player.global_position.distance_to(orb.global_position) < pickup_dist:
 			var max_hp := _get_hero_stat(active_hero_id, "max_hp")
 			var max_sp := _get_hero_stat(active_hero_id, "max_sp")
 			var bonus := float(save_data.get("core_upgrades", {}).get("orb_lv", 0)) * 15.0
-			var heal_hp := 40.0 + bonus
-			var heal_sp := 30.0 + bonus
+			var mult_orb := 1.35 if active_boons.has("jade_magnet") else 1.0
+			var heal_hp := (40.0 + bonus) * mult_orb
+			var heal_sp := (30.0 + bonus) * mult_orb
 			hero_hp[active_hero_id] = minf(max_hp, hero_hp[active_hero_id] + heal_hp)
 			hero_sp[active_hero_id] = minf(max_sp, hero_sp[active_hero_id] + heal_sp)
 			sfx.play_sfx("dodge")
@@ -2625,13 +2660,19 @@ func _toggle_difficulty():
 
 
 func _set_codex_tab(idx: int):
-	codex_tab = clampi(idx, 0, 2)
+	codex_tab = clampi(idx, 0, 3)
 	if codex_upgrade_scroll:
 		codex_upgrade_scroll.visible = (codex_tab == 0)
 	if codex_party_scroll:
 		codex_party_scroll.visible = (codex_tab == 1)
-	if codex_chapters_box:
+	if codex_chapters_scroll:
+		codex_chapters_scroll.visible = (codex_tab == 2)
+	elif codex_chapters_box:
 		codex_chapters_box.visible = (codex_tab == 2)
+	if codex_gear_scroll:
+		codex_gear_scroll.visible = (codex_tab == 3)
+	if codex_tab == 3:
+		_rebuild_gear_list()
 	for i in range(codex_tab_btns.size()):
 		var b: Button = codex_tab_btns[i]
 		if i == codex_tab:
@@ -2650,7 +2691,12 @@ func _toggle_help_overlay():
 func _open_boon_picker():
 	if not boon_overlay:
 		return
-	var pool := CodexUI.BOON_DEFS.duplicate()
+	var pool: Array = []
+	for b in CodexUI.BOON_DEFS:
+		if not active_boons.has(b["id"]):
+			pool.append(b)
+	if pool.size() < 3:
+		pool = CodexUI.BOON_DEFS.duplicate()
 	pool.shuffle()
 	boon_choices = pool.slice(0, 3)
 	for i in range(3):
@@ -2881,3 +2927,125 @@ func _buy_hero_passive(hid: String):
 func _jump_to_chapter(ch_idx: int):
 	Globals.set_meta("chapter", ch_idx)
 	get_tree().reload_current_scene()
+
+
+func _show_boss_warning(boss_title: String, is_miniboss: bool):
+	if sfx:
+		sfx.play_sfx("boss_warn")
+	if screen_flash:
+		screen_flash.color = Color(0.95, 0.35, 0.15, 0.28) if not is_miniboss else Color(0.95, 0.65, 0.15, 0.22)
+		var tw := create_tween()
+		tw.tween_property(screen_flash, "color:a", 0.0, 0.55)
+	if boss_name_label:
+		boss_name_label.add_theme_color_override("font_color", Color("#fbbf24") if is_miniboss else Color("#fda4af"))
+	var prefix := "⚠️ มินิบอสปรากฏกาย!" if is_miniboss else "☠️ คำเตือนจอมมารปรากฏกาย!"
+	_show_banner("%s — %s" % [prefix, boss_title], 3.0)
+
+
+func _grant_boss_gear_drop(is_boss: bool):
+	var owned: Array = save_data.get("owned_gear", []).duplicate()
+	var candidates: Array = []
+	for item_id in EquipData.get_drop_pool(chapter, is_boss):
+		if not owned.has(item_id):
+			candidates.append(item_id)
+	if candidates.size() > 0:
+		var drop_id: String = str(candidates[randi() % candidates.size()])
+		owned.append(drop_id)
+		save_data["owned_gear"] = owned
+		SaveManager.save_data(save_data, save_path)
+		var it := EquipData.get_item(drop_id)
+		_show_banner("🎁 ดรอปศาสตราวุธ [%s]: %s!" % [str(it.get("rarity", "")), str(it.get("name", drop_id))], 2.8)
+	else:
+		var bonus_jade := 25 if is_boss else 12
+		_award_spirit_jade(bonus_jade)
+
+
+func _toggle_equip_gear(item_id: String):
+	var it := EquipData.get_item(item_id)
+	if it.is_empty():
+		return
+	var slot := str(it["slot"])
+	var hg: Dictionary = save_data.get("hero_gear", {}).duplicate(true)
+	var cur_slots: Dictionary = hg.get(active_hero_id, {}).duplicate()
+	if str(cur_slots.get(slot, "")) == item_id:
+		cur_slots.erase(slot)
+	else:
+		cur_slots[slot] = item_id
+	hg[active_hero_id] = cur_slots
+	save_data["hero_gear"] = hg
+	SaveManager.save_data(save_data, save_path)
+	hero_hp[active_hero_id] = minf(_get_hero_stat(active_hero_id, "max_hp"), hero_hp[active_hero_id])
+	_rebuild_gear_list()
+	_refresh_hud()
+
+
+func _forge_gear_item(item_id: String):
+	var it := EquipData.get_item(item_id)
+	if it.is_empty():
+		return
+	var owned: Array = save_data.get("owned_gear", []).duplicate()
+	if owned.has(item_id):
+		return
+	var cost := int(it.get("cost", 50))
+	var jade := int(save_data.get("spirit_jade", 0))
+	if jade < cost:
+		_show_banner("หยกปราณไม่พอ! (ต้องการ %d 💎)" % cost, 1.5)
+		return
+	save_data["spirit_jade"] = jade - cost
+	owned.append(item_id)
+	save_data["owned_gear"] = owned
+	SaveManager.save_data(save_data, save_path)
+	sfx.play_sfx("crit")
+	_rebuild_gear_list()
+	_refresh_hud()
+	if upgrade_jade_lbl:
+		upgrade_jade_lbl.text = "💎 หยกปราณคงเหลือ: %d" % int(save_data["spirit_jade"])
+
+
+func _rebuild_gear_list():
+	if not codex_gear_box:
+		return
+	for ch in codex_gear_box.get_children():
+		ch.queue_free()
+	var hdata: Dictionary = HeroData.HEROES[active_hero_id]
+	var owned: Array = save_data.get("owned_gear", [])
+	var cur_slots: Dictionary = save_data.get("hero_gear", {}).get(active_hero_id, {})
+	var hdr := Label.new()
+	hdr.text = "กำลังจัดศาสตราวุธให้: %s (%s) — อาวุธ: %s | เครื่องราง: %s" % [
+		str(hdata["name"]), str(hdata["title"]),
+		str(EquipData.get_item(str(cur_slots.get("weapon", ""))).get("name", "ว่าง")),
+		str(EquipData.get_item(str(cur_slots.get("relic", ""))).get("name", "ว่าง")),
+	]
+	hdr.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hdr.add_theme_font_size_override("font_size", 12)
+	hdr.add_theme_color_override("font_color", Color("#fde047"))
+	codex_gear_box.add_child(hdr)
+	for item_id in EquipData.ITEM_ORDER:
+		var it := EquipData.get_item(item_id)
+		var is_owned := owned.has(item_id)
+		var is_eq := str(cur_slots.get(str(it["slot"]), "")) == item_id
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		codex_gear_box.add_child(row)
+		var slot_tag := "⚔️ อาวุธ" if it["slot"] == "weapon" else "🔮 เครื่องราง"
+		var lbl := Label.new()
+		lbl.text = "[%s · %s] %s — %s" % [slot_tag, str(it["rarity"]), str(it["name"]), str(it["desc"])]
+		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lbl.add_theme_font_size_override("font_size", 12)
+		lbl.add_theme_color_override("font_color", Color(str(it["color"])) if is_owned else Color("#64748b"))
+		row.add_child(lbl)
+		var btn := Button.new()
+		btn.custom_minimum_size = Vector2(118, 38)
+		btn.add_theme_font_size_override("font_size", 12)
+		if is_owned:
+			btn.text = "✓ ใส่อยู่ (ถอด)" if is_eq else "สวมใส่"
+			if is_eq:
+				btn.add_theme_color_override("font_color", Color("#4ade80"))
+			btn.pressed.connect(_toggle_equip_gear.bind(item_id))
+		else:
+			var cost := int(it.get("cost", 50))
+			btn.text = "หลอม %d 💎" % cost
+			btn.disabled = int(save_data.get("spirit_jade", 0)) < cost
+			btn.pressed.connect(_forge_gear_item.bind(item_id))
+		row.add_child(btn)

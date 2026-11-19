@@ -41,11 +41,11 @@ static func build_modal(hud: CanvasLayer, sb: StyleBoxFlat, chapter: int, callba
 	tab_row.add_theme_constant_override("separation", 10)
 	upg_root.add_child(tab_row)
 	var tab_btns: Array = []
-	for t_item in [[0, "⚔️ อัปเกรดคัมภีร์"], [1, "👥 จัดทีม 7 จอมยุทธ์ & ชุด"], [2, "🗺️ เลือกด่าน 10 บท (100 ชั้น)"]]:
+	for t_item in [[0, "⚔️ อัปเกรดคัมภีร์"], [1, "👥 จัดทีม 7 จอมยุทธ์"], [2, "🗺️ เลือกด่าน 100 ชั้น"], [3, "🎒 ศาสตราวุธ"]]:
 		var tb := Button.new()
 		tb.text = str(t_item[1])
-		tb.custom_minimum_size = Vector2(226, 34)
-		tb.add_theme_font_size_override("font_size", 13)
+		tb.custom_minimum_size = Vector2(168, 34)
+		tb.add_theme_font_size_override("font_size", 12)
 		tb.pressed.connect(callbacks["set_tab"].bind(int(t_item[0])))
 		tab_row.add_child(tb)
 		tab_btns.append(tb)
@@ -118,6 +118,16 @@ static func build_modal(hud: CanvasLayer, sb: StyleBoxFlat, chapter: int, callba
 		br_btn.pressed.connect(callbacks["boss_rush"])
 		chapters_box.add_child(br_btn)
 
+	var gear_scroll := ScrollContainer.new()
+	gear_scroll.custom_minimum_size = Vector2(720, 385)
+	gear_scroll.visible = false
+	upg_root.add_child(gear_scroll)
+
+	var gear_box := VBoxContainer.new()
+	gear_box.add_theme_constant_override("separation", 6)
+	gear_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gear_scroll.add_child(gear_box)
+
 	var tip_lbl := Label.new()
 	tip_lbl.text = "ทริค: กด [E]/[R] ติดตรา -> สลับตัว [1/2/3/Tab] ใน 2.5 วิ เพื่อจุดระเบิดผสานปราณ!"
 	tip_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -161,6 +171,8 @@ static func build_modal(hud: CanvasLayer, sb: StyleBoxFlat, chapter: int, callba
 		"party_scroll": party_scroll,
 		"party_box": party_box,
 		"chapters_box": chapters_box,
+		"gear_scroll": gear_scroll,
+		"gear_box": gear_box,
 		"chapter_btns": chapter_btns,
 		"cutin_btn": cutin_btn,
 		"bgm_btn": bgm_btn,
