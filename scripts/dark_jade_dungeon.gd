@@ -3086,7 +3086,7 @@ func _import_save_code(raw_override: String = ""):
 	_refresh_cutin_btn()
 	_refresh_bgm_btn()
 	_rebuild_upgrade_list()
-	_rebuild_party_list()
+	_rebuild_party_hud()
 	_rebuild_gear_list()
 	CodexUI.refresh_chapters(codex_chapter_btns, chapter, save_data.get("cleared_chapters", []))
 	if upgrade_jade_lbl:
