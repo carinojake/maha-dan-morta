@@ -937,3 +937,435 @@ static func spawn_heavenly_bagua_dome(floor_parent: Node2D, fx_parent: Node2D, p
 	ftw.tween_interval(1.0)
 	ftw.tween_property(dome, "modulate:a", 0.0, 0.35)
 	ftw.tween_callback(dome.queue_free)
+
+
+# 16. แส้โซ่มารเพลิงม่วง (Ye Shangye Skill [Q])
+static func spawn_demon_chain_lash(fx_parent: Node2D, pos: Vector2, angle: float, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var violet := Color("#a855f7")
+	var crimson := Color("#f43f5e")
+	var spark_col := Color("#fb923c")
+	var root := Node2D.new()
+	root.position = pos
+	root.rotation = angle
+	fx_parent.add_child(root)
+
+	var outer := Line2D.new()
+	outer.material = add_mat
+	var opts := PackedVector2Array()
+	for i in range(18):
+		var t := float(i) / 17.0
+		var ang := lerpf(-1.25, 1.25, t)
+		opts.append(Vector2(cos(ang) * 54.0, sin(ang) * 76.0))
+	outer.points = opts
+	outer.width = 9.0
+	outer.default_color = violet
+	root.add_child(outer)
+
+	var core := Line2D.new()
+	core.material = add_mat
+	core.points = opts
+	core.width = 3.5
+	core.default_color = crimson
+	root.add_child(core)
+
+	# Iron chain link ticks along the arc
+	for i in range(6):
+		var t := lerpf(-1.05, 1.05, float(i) / 5.0)
+		var tick := Line2D.new()
+		var base_p := Vector2(cos(t) * 54.0, sin(t) * 76.0)
+		var norm := Vector2(cos(t), sin(t)) * 10.0
+		tick.points = PackedVector2Array([base_p - norm, base_p + norm])
+		tick.width = 3.0
+		tick.default_color = Color("#1e1b2e")
+		root.add_child(tick)
+
+	# Fiery orange spark flecks
+	for i in range(6):
+		var sp := Polygon2D.new()
+		sp.material = add_mat
+		sp.polygon = PackedVector2Array([
+			Vector2(-4, 0), Vector2(0, -3), Vector2(6, 0), Vector2(0, 3)
+		])
+		sp.color = spark_col
+		var y_off := lerpf(-48.0, 48.0, float(i) / 5.0)
+		sp.position = Vector2(28.0, y_off)
+		root.add_child(sp)
+		var stw := sp.create_tween()
+		stw.tween_property(sp, "position", sp.position + Vector2(randf_range(42.0, 82.0), y_off * 0.35), 0.28)
+
+	var tw := root.create_tween()
+	tw.tween_property(root, "scale", Vector2(1.26, 1.26), 0.30)
+	tw.parallel().tween_property(root, "modulate:a", 0.0, 0.30)
+	tw.tween_callback(root.queue_free)
+
+
+# 17. คลื่นไฟโลกันตร์ + หินแตก (Ye Shangye Skill [E])
+static func spawn_hellfire_wave_eruption(floor_parent: Node2D, fx_parent: Node2D, pos: Vector2, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var violet := Color("#c084fc")
+	var deep_purple := Color("#9333ea")
+
+	var seal := Node2D.new()
+	seal.position = pos
+	floor_parent.add_child(seal)
+
+	var ring := Line2D.new()
+	ring.material = add_mat
+	var rpts := _make_ellipse(185.0, 130.0, 36)
+	rpts.append(rpts[0])
+	ring.points = rpts
+	ring.width = 4.0
+	ring.default_color = deep_purple
+	seal.add_child(ring)
+
+	var stw := seal.create_tween()
+	stw.tween_property(seal, "scale", Vector2(1.12, 1.12), 0.78)
+	stw.parallel().tween_property(seal, "modulate:a", 0.0, 0.78)
+	stw.tween_callback(seal.queue_free)
+
+	var flames := Node2D.new()
+	flames.position = pos
+	fx_parent.add_child(flames)
+	for i in range(10):
+		var a := (float(i) / 10.0) * TAU
+		var f_pos := Vector2(cos(a) * 145.0, sin(a) * 102.0)
+		var tongue := Polygon2D.new()
+		tongue.material = add_mat
+		tongue.polygon = PackedVector2Array([
+			Vector2(-16, 4), Vector2(-10, -48), Vector2(0, -86), Vector2(11, -44), Vector2(16, 4)
+		])
+		tongue.color = violet if i % 2 == 0 else deep_purple
+		tongue.position = f_pos
+		tongue.scale = Vector2(0.4, 0.15)
+		flames.add_child(tongue)
+		var ftw := tongue.create_tween()
+		ftw.tween_interval(float(i) * 0.025)
+		ftw.tween_property(tongue, "scale", Vector2(1.0, 1.0), 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+	for r_i in range(8):
+		var ra := (float(r_i) / 8.0) * TAU + 0.2
+		var shard := Polygon2D.new()
+		shard.polygon = PackedVector2Array([
+			Vector2(-6, -4), Vector2(4, -7), Vector2(8, 3), Vector2(-3, 7)
+		])
+		shard.color = Color("#1f1629")
+		shard.position = Vector2(cos(ra) * 58.0, sin(ra) * 40.0)
+		flames.add_child(shard)
+		var rtw := shard.create_tween()
+		rtw.tween_property(shard, "position", Vector2(cos(ra) * 180.0, sin(ra) * 120.0 - 48.0), 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+	var end_tw := flames.create_tween()
+	end_tw.tween_interval(0.45)
+	end_tw.tween_property(flames, "modulate:a", 0.0, 0.33)
+	end_tw.tween_callback(flames.queue_free)
+
+
+# 18. นรกโซ่โลหิตกลืนพิภพ (Ye Shangye Skill [R])
+static func spawn_demon_king_chain_abyss(floor_parent: Node2D, fx_parent: Node2D, pos: Vector2, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var violet := Color("#a855f7")
+	var crimson := Color("#e11d48")
+	var bright := Color("#e9d5ff")
+
+	var abyss := Node2D.new()
+	abyss.position = pos
+	floor_parent.add_child(abyss)
+
+	for spec in [[230.0, 162.0, 4.5, violet], [168.0, 118.0, 3.0, crimson]]:
+		var ring := Line2D.new()
+		ring.material = add_mat
+		var rpts := _make_ellipse(float(spec[0]), float(spec[1]), 40)
+		rpts.append(rpts[0])
+		ring.points = rpts
+		ring.width = float(spec[2])
+		ring.default_color = spec[3]
+		abyss.add_child(ring)
+
+	for c_i in range(8):
+		var ca := (float(c_i) / 8.0) * TAU
+		var crack := Line2D.new()
+		crack.material = add_mat
+		crack.points = PackedVector2Array([
+			Vector2.ZERO,
+			Vector2(cos(ca + 0.12) * 115.0, sin(ca + 0.12) * 80.0),
+			Vector2(cos(ca) * 222.0, sin(ca) * 155.0),
+		])
+		crack.width = 3.2
+		crack.default_color = crimson if c_i % 2 == 0 else violet
+		abyss.add_child(crack)
+
+	var atw := abyss.create_tween()
+	atw.tween_interval(1.0)
+	atw.tween_property(abyss, "modulate:a", 0.0, 0.35)
+	atw.tween_callback(abyss.queue_free)
+
+	var inferno := Node2D.new()
+	inferno.position = pos
+	fx_parent.add_child(inferno)
+
+	for i in range(12):
+		var a := (float(i) / 12.0) * TAU
+		var flame := Polygon2D.new()
+		flame.material = add_mat
+		flame.polygon = PackedVector2Array([
+			Vector2(-15, 6), Vector2(-8, -62), Vector2(0, -108), Vector2(9, -56), Vector2(15, 6)
+		])
+		flame.color = Color(violet.r, violet.g, violet.b, 0.80) if i % 2 == 0 else Color(crimson.r, crimson.g, crimson.b, 0.72)
+		flame.position = Vector2(cos(a) * 188.0, sin(a) * 130.0)
+		flame.scale = Vector2(1.0, 0.1)
+		inferno.add_child(flame)
+		var ftw := flame.create_tween()
+		ftw.tween_interval(float(i) * 0.02)
+		ftw.tween_property(flame, "scale", Vector2(1.0, 1.0), 0.18)
+
+	# 6 massive diagonal dark-iron chains wrapped in blazing purple plasma
+	for i in range(6):
+		var t := float(i) / 5.0
+		var x_off := lerpf(-165.0, 165.0, t)
+		var tilt := lerpf(-55.0, 55.0, t)
+		var chain_root := Node2D.new()
+		chain_root.position = Vector2(x_off, 16.0)
+		chain_root.scale = Vector2(1.0, 0.05)
+		inferno.add_child(chain_root)
+
+		var iron := Line2D.new()
+		iron.points = PackedVector2Array([Vector2.ZERO, Vector2(tilt, -250.0)])
+		iron.width = 7.5
+		iron.default_color = Color("#181024")
+		chain_root.add_child(iron)
+
+		var plasma := Line2D.new()
+		plasma.material = add_mat
+		var ppts := PackedVector2Array()
+		for s in range(12):
+			var pt := float(s) / 11.0
+			var px := lerpf(0.0, tilt, pt) + sin(pt * TAU * 2.5) * 14.0
+			var py := lerpf(0.0, -250.0, pt)
+			ppts.append(Vector2(px, py))
+		plasma.points = ppts
+		plasma.width = 3.8
+		plasma.default_color = bright if i % 2 == 0 else violet
+		chain_root.add_child(plasma)
+
+		var ctw := chain_root.create_tween()
+		ctw.tween_interval(float(i) * 0.03)
+		ctw.tween_property(chain_root, "scale", Vector2(1.0, 1.0), 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+	var itw := inferno.create_tween()
+	itw.tween_interval(1.0)
+	itw.tween_property(inferno, "modulate:a", 0.0, 0.35)
+	itw.tween_callback(inferno.queue_free)
+
+
+# 19. คมดาบหมึกดำผ่าเงา (Chen Xi Skill [Q])
+static func spawn_ink_shadow_cleave(fx_parent: Node2D, pos: Vector2, angle: float, _col: Color) -> void:
+	var root := Node2D.new()
+	root.position = pos
+	root.rotation = angle
+	fx_parent.add_child(root)
+
+	# Bold black-ink brush-stroke arc (normal blend so dark ink pops cleanly)
+	var ink_arc := Line2D.new()
+	var ipts := PackedVector2Array()
+	for i in range(16):
+		var t := lerpf(-1.18, 1.18, float(i) / 15.0)
+		ipts.append(Vector2(cos(t) * 52.0, sin(t) * 74.0))
+	ink_arc.points = ipts
+	ink_arc.width = 12.0
+	ink_arc.default_color = Color("#18181b")
+	root.add_child(ink_arc)
+
+	# Crisp silver-white blade highlight edge
+	var edge := Line2D.new()
+	var epts := PackedVector2Array()
+	for i in range(16):
+		var t := lerpf(-1.12, 1.12, float(i) / 15.0)
+		epts.append(Vector2(cos(t) * 56.0 + 4.0, sin(t) * 74.0))
+	edge.points = epts
+	edge.width = 3.5
+	edge.default_color = Color("#e2e8f0")
+	root.add_child(edge)
+
+	# 5 flying ink droplets
+	for i in range(5):
+		var drop := Polygon2D.new()
+		drop.polygon = PackedVector2Array([
+			Vector2(-5, 0), Vector2(0, -4), Vector2(7, 0), Vector2(0, 4)
+		])
+		drop.color = Color("#18181b") if i % 2 == 0 else Color("#cbd5e1")
+		var y_off := lerpf(-44.0, 44.0, float(i) / 4.0)
+		drop.position = Vector2(36.0, y_off)
+		root.add_child(drop)
+		var dtw := drop.create_tween()
+		dtw.tween_property(drop, "position", drop.position + Vector2(randf_range(44.0, 88.0), y_off * 0.25), 0.28)
+
+	var fwd := Vector2(cos(angle), sin(angle)) * 85.0
+	var tw := root.create_tween()
+	tw.tween_property(root, "position", pos + fwd, 0.30).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(root, "scale", Vector2(1.25, 1.25), 0.30)
+	tw.parallel().tween_property(root, "modulate:a", 0.0, 0.30)
+	tw.tween_callback(root.queue_free)
+
+
+# 20. ระเบิดปราณขาว-ชาด (Chen Xi Skill [E])
+static func spawn_blood_qi_ignition(floor_parent: Node2D, fx_parent: Node2D, pos: Vector2, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var crimson := Color("#ef4444")
+	var ice_white := Color("#e0f2fe")
+
+	# Explosive icy-white initial starburst
+	var burst := Polygon2D.new()
+	burst.material = add_mat
+	burst.polygon = _make_star_poly(95.0, 32.0, 12)
+	burst.color = ice_white
+	burst.position = pos + Vector2(0.0, -24.0)
+	burst.scale = Vector2(0.25, 0.25)
+	fx_parent.add_child(burst)
+	var btw := burst.create_tween()
+	btw.tween_property(burst, "scale", Vector2(1.45, 1.45), 0.20).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	btw.parallel().tween_property(burst, "modulate:a", 0.0, 0.24)
+	btw.tween_callback(burst.queue_free)
+
+	# Glowing crimson blood-qi starburst on floor
+	var floor_star := Node2D.new()
+	floor_star.position = pos
+	floor_parent.add_child(floor_star)
+
+	var star_poly := Polygon2D.new()
+	star_poly.material = add_mat
+	var spts := _make_star_poly(175.0, 68.0, 10)
+	for i in range(spts.size()):
+		spts[i] = Vector2(spts[i].x, spts[i].y * 0.70)
+	star_poly.polygon = spts
+	star_poly.color = Color(crimson.r, crimson.g, crimson.b, 0.55)
+	floor_star.add_child(star_poly)
+
+	var ftw := floor_star.create_tween()
+	ftw.tween_property(floor_star, "rotation", 0.45, 0.72)
+	ftw.parallel().tween_property(floor_star, "modulate:a", 0.0, 0.75)
+	ftw.tween_callback(floor_star.queue_free)
+
+	# 3 swirling crimson energy ribbons curling around pos
+	var ribbons := Node2D.new()
+	ribbons.position = pos + Vector2(0.0, -24.0)
+	fx_parent.add_child(ribbons)
+	for r_i in range(3):
+		var base_a := (float(r_i) / 3.0) * TAU
+		var rib := Line2D.new()
+		rib.material = add_mat
+		var rpts := PackedVector2Array()
+		for s in range(18):
+			var t := float(s) / 17.0
+			var a := base_a + t * 3.2
+			var rad := lerpf(36.0, 145.0, t)
+			rpts.append(Vector2(cos(a) * rad, sin(a) * rad * 0.72 - t * 38.0))
+		rib.points = rpts
+		rib.width = 4.5
+		rib.default_color = crimson if r_i != 1 else Color("#fca5a5")
+		ribbons.add_child(rib)
+
+	var rtw := ribbons.create_tween()
+	rtw.tween_property(ribbons, "rotation", 1.9, 0.72)
+	rtw.parallel().tween_property(ribbons, "modulate:a", 0.0, 0.75)
+	rtw.tween_callback(ribbons.queue_free)
+
+
+# 21. สังหารโลหิตสะบั้นฟ้า (Chen Xi Skill [R])
+static func spawn_heaven_severing_blood_slash(floor_parent: Node2D, fx_parent: Node2D, pos: Vector2, _col: Color) -> void:
+	var add_mat := _make_add_mat()
+	var crimson := Color("#ef4444")
+	var pale_red := Color("#fca5a5")
+	var silver := Color("#cbd5e1")
+
+	# Shattered crimson ground-impact starburst
+	var impact := Node2D.new()
+	impact.position = pos
+	floor_parent.add_child(impact)
+
+	var star := Polygon2D.new()
+	star.material = add_mat
+	var spts := _make_star_poly(220.0, 82.0, 14)
+	for i in range(spts.size()):
+		spts[i] = Vector2(spts[i].x, spts[i].y * 0.69)
+	star.polygon = spts
+	star.color = Color(crimson.r, crimson.g, crimson.b, 0.60)
+	impact.add_child(star)
+
+	var ring := Line2D.new()
+	ring.material = add_mat
+	var rpts := _make_ellipse(220.0, 152.0, 36)
+	rpts.append(rpts[0])
+	ring.points = rpts
+	ring.width = 4.0
+	ring.default_color = pale_red
+	impact.add_child(ring)
+
+	var itw := impact.create_tween()
+	itw.tween_property(impact, "scale", Vector2(1.16, 1.16), 1.1)
+	itw.tween_property(impact, "modulate:a", 0.0, 0.25)
+	itw.tween_callback(impact.queue_free)
+
+	# Twin spiraling crimson ribbons + 8 metallic broken-sword shards + Colossal Vertical Crimson Beam
+	var slash_fx := Node2D.new()
+	slash_fx.position = pos
+	fx_parent.add_child(slash_fx)
+
+	for r_i in range(2):
+		var sign_v := 1.0 if r_i == 0 else -1.0
+		var rib := Line2D.new()
+		rib.material = add_mat
+		var bpts := PackedVector2Array()
+		for s in range(20):
+			var t := float(s) / 19.0
+			var y := lerpf(12.0, -250.0, t)
+			var x := sin(t * TAU * 1.8) * 92.0 * sign_v
+			bpts.append(Vector2(x, y))
+		rib.points = bpts
+		rib.width = 5.5
+		rib.default_color = crimson if r_i == 0 else pale_red
+		slash_fx.add_child(rib)
+
+	for s_i in range(8):
+		var sa := (float(s_i) / 8.0) * TAU
+		var shard := Polygon2D.new()
+		shard.polygon = PackedVector2Array([
+			Vector2(-5, -14), Vector2(6, -8), Vector2(4, 14), Vector2(-6, 9)
+		])
+		shard.color = silver
+		shard.position = Vector2(cos(sa) * 72.0, sin(sa) * 45.0 - 24.0)
+		shard.rotation = sa
+		slash_fx.add_child(shard)
+		var stw := shard.create_tween()
+		stw.tween_property(shard, "position", Vector2(cos(sa) * 145.0, sin(sa) * 90.0 - 155.0), 0.75).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+	# Colossal Vertical Sky-Splitting Crimson Cleave Beam
+	var beam := Node2D.new()
+	beam.position = Vector2(0.0, -160.0)
+	beam.scale = Vector2(1.0, 0.05)
+	slash_fx.add_child(beam)
+
+	var outer_beam := Polygon2D.new()
+	outer_beam.material = add_mat
+	outer_beam.polygon = PackedVector2Array([
+		Vector2(-26, 170), Vector2(-18, -160), Vector2(0, -190), Vector2(18, -160), Vector2(26, 170)
+	])
+	outer_beam.color = Color(crimson.r, crimson.g, crimson.b, 0.78)
+	beam.add_child(outer_beam)
+
+	var inner_beam := Polygon2D.new()
+	inner_beam.material = add_mat
+	inner_beam.polygon = PackedVector2Array([
+		Vector2(-10, 170), Vector2(-7, -155), Vector2(0, -182), Vector2(7, -155), Vector2(10, 170)
+	])
+	inner_beam.color = Color("#fff1f2")
+	beam.add_child(inner_beam)
+
+	var btw := beam.create_tween()
+	btw.tween_property(beam, "position", Vector2.ZERO, 0.14).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	btw.parallel().tween_property(beam, "scale", Vector2(1.15, 1.0), 0.14)
+
+	var ftw := slash_fx.create_tween()
+	ftw.tween_interval(1.0)
+	ftw.tween_property(slash_fx, "modulate:a", 0.0, 0.35)
+	ftw.tween_callback(slash_fx.queue_free)

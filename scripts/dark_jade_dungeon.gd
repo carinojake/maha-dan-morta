@@ -1299,6 +1299,7 @@ func _cast_skill_q(aim_dir: Vector2):
 			var d := aim_dir.rotated(ang)
 			_spawn_projectile(player.global_position + d * 28.0, d, int(atk * 1.35), data["vfx_attack"], data["color"], 720.0, true)
 	elif active_hero_id == "ye_shangye":
+		VfxStudio.spawn_demon_chain_lash(fx_layer, player.global_position + aim_dir * 42.0, aim_dir.angle(), data["color"])
 		_spawn_slash_vfx(player.global_position + aim_dir * 75.0, aim_dir.angle(), data["vfx_attack"], data["color"], 1.55)
 		for e in enemies:
 			if not is_instance_valid(e):
@@ -1318,6 +1319,8 @@ func _cast_skill_q(aim_dir: Vector2):
 		var reach := 270.0 if active_hero_id == "yu_han" else 220.0
 		if active_hero_id == "hei_shan":
 			VfxStudio.spawn_crimson_ribbon_needles(fx_layer, player.global_position + aim_dir * 28.0, aim_dir.angle(), data["color"])
+		elif active_hero_id == "chen_xi":
+			VfxStudio.spawn_ink_shadow_cleave(fx_layer, player.global_position + aim_dir * 42.0, aim_dir.angle(), data["color"])
 		else:
 			_spawn_slash_vfx(player.global_position + aim_dir * 65.0, aim_dir.angle(), data["vfx_attack"], data["color"], 1.35)
 		for e in enemies:
@@ -1347,6 +1350,10 @@ func _cast_skill_e():
 		VfxStudio.spawn_bagua_binding_array(floor_layer, fx_layer, player.global_position, data["color"])
 	elif active_hero_id == "hei_shan":
 		VfxStudio.spawn_golden_vine_sanctuary(floor_layer, fx_layer, player.global_position, data["color"])
+	elif active_hero_id == "ye_shangye":
+		VfxStudio.spawn_hellfire_wave_eruption(floor_layer, fx_layer, player.global_position, data["color"])
+	elif active_hero_id == "chen_xi":
+		VfxStudio.spawn_blood_qi_ignition(floor_layer, fx_layer, player.global_position, data["color"])
 
 	for i in range(6):
 		var ang := (float(i) / 6.0) * TAU
@@ -1420,6 +1427,10 @@ func _cast_skill_r():
 		VfxStudio.spawn_heavenly_bagua_dome(floor_layer, fx_layer, player.global_position, col)
 	elif active_hero_id == "hei_shan":
 		VfxStudio.spawn_ninetail_blossom_domain(floor_layer, fx_layer, player.global_position, col)
+	elif active_hero_id == "ye_shangye":
+		VfxStudio.spawn_demon_king_chain_abyss(floor_layer, fx_layer, player.global_position, col)
+	elif active_hero_id == "chen_xi":
+		VfxStudio.spawn_heaven_severing_blood_slash(floor_layer, fx_layer, player.global_position, col)
 
 	if bool(save_data.get("cutin_enabled", true)) and cutin_overlay and cutin_overlay.has_cutin(active_hero_id):
 		if cutin_overlay.play(active_hero_id) and hitstop_timer <= 0.0:

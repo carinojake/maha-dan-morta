@@ -45,6 +45,28 @@ const CUTINS := {
 		"subtitle": "ซ่งเหริน · นักพรตยันต์แปดทิศ",
 		"accent": Color("#22d3ee"),
 	},
+	"ye_shangye": {
+		"sheet": "res://assets/vfx/cutin_ye_shangye_r_sheet.jpg",
+		"audio": "res://assets/vfx/cutin_ye_shangye_r.wav",
+		"cols": 6,
+		"rows": 5,
+		"frames": 30,
+		"fps": 17.0,
+		"title": "★ ราชันมารกลืนพิภพ",
+		"subtitle": "เยี่ยซางเยี่ย · จอมมารโซ่โลหิต",
+		"accent": Color("#a855f7"),
+	},
+	"chen_xi": {
+		"sheet": "res://assets/vfx/cutin_chen_xi_r_sheet.jpg",
+		"audio": "res://assets/vfx/cutin_chen_xi_r.wav",
+		"cols": 6,
+		"rows": 5,
+		"frames": 30,
+		"fps": 17.5,
+		"title": "★ สังหารโลหิตสะบั้นฟ้า",
+		"subtitle": "เฉินซี · กระบี่หักโลหิต",
+		"accent": Color("#ef4444"),
+	},
 }
 
 var panel: PanelContainer
