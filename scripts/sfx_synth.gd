@@ -22,8 +22,9 @@ func _ready():
 
 	_streams["slash"] = _make_sweep(680.0, 180.0, 0.13, 0.45, true)
 	_streams["talisman"] = _make_sweep(980.0, 1450.0, 0.11, 0.35, false)
-	_streams["hit"] = _make_sweep(210.0, 75.0, 0.10, 0.55, true)
-	_streams["crit"] = _make_chord([523.25, 783.99, 1046.5], 0.22, 0.50)
+	_streams["hit"] = _make_sweep(235.0, 92.0, 0.085, 0.48, true)
+	_streams["heavy_hit"] = _make_heavy_hit()
+	_streams["crit"] = _make_chord([587.33, 880.0, 1174.66], 0.19, 0.56)
 	_streams["dash"] = _make_sweep(420.0, 920.0, 0.14, 0.30, true)
 	_streams["switch"] = _make_chord([440.0, 659.25], 0.18, 0.35)
 	_streams["skill_q"] = _make_sweep(520.0, 1180.0, 0.20, 0.45, false)
@@ -49,7 +50,7 @@ func _ready():
 	_bgm_player.stream = _bgm_normal
 	_apply_bgm_volume()
 	add_child(_bgm_player)
-	if _bgm_enabled:
+	if _bgm_enabled and DisplayServer.get_name() != "headless":
 		_bgm_player.play()
 
 
@@ -78,7 +79,7 @@ func set_bgm_mode(is_boss: bool):
 	_bgm_is_boss = is_boss
 	_bgm_player.stream = _bgm_boss if is_boss else _bgm_normal
 	_apply_bgm_volume()
-	if _bgm_enabled:
+	if _bgm_enabled and DisplayServer.get_name() != "headless":
 		_bgm_player.play()
 
 
@@ -89,7 +90,7 @@ func set_bgm_enabled(enabled: bool):
 	if _bgm_enabled:
 		_bgm_player.stream = _bgm_boss if _bgm_is_boss else _bgm_normal
 		_apply_bgm_volume()
-		if not _bgm_player.playing:
+		if not _bgm_player.playing and DisplayServer.get_name() != "headless":
 			_bgm_player.play()
 	else:
 		_bgm_player.stop()
@@ -130,13 +131,32 @@ func _exit_tree():
 
 
 func play_sfx(key: String, pitch_jitter: float = 0.06):
-	if not _streams.has(key):
+	if not _streams.has(key) or DisplayServer.get_name() == "headless":
 		return
 	var p := _players[_next_idx]
 	_next_idx = (_next_idx + 1) % _players.size()
 	p.stream = _streams[key]
 	p.pitch_scale = randf_range(1.0 - pitch_jitter, 1.0 + pitch_jitter)
 	p.play()
+
+
+func _make_heavy_hit() -> AudioStreamWAV:
+	# Deep martial impact thud + crisp metallic weapon ring to distinguish Heavy/Skill/Counter hits
+	var dur := 0.18
+	var n := int(MIX_RATE * dur)
+	var buf := PackedFloat32Array()
+	buf.resize(n)
+	var phase := 0.0
+	for i in range(n):
+		var t := float(i) / float(n)
+		var env := pow(1.0 - t, 1.55)
+		var freq := lerpf(165.0, 46.0, minf(1.0, t * 1.4))
+		phase += TAU * freq / float(MIX_RATE)
+		var sub := sin(phase) * 0.72
+		var ring := sin(TAU * 720.0 * float(i) / float(MIX_RATE)) * 0.22 * pow(1.0 - t, 2.6)
+		var snap := randf_range(-1.0, 1.0) * 0.30 * pow(1.0 - t, 3.2)
+		buf[i] = clampf((sub + ring + snap) * env * 0.76, -0.95, 0.95)
+	return _pack_wav(buf)
 
 
 func _pack_wav(samples: PackedFloat32Array, loop: bool = false) -> AudioStreamWAV:

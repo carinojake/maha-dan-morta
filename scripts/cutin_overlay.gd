@@ -422,7 +422,7 @@ func play(hid: String, fullscreen: bool = false) -> bool:
 		panel.visible = true
 
 	var sfx_stream: AudioStream = _load_audio(str(cfg.get("audio", "")))
-	if sfx_stream != null and is_instance_valid(audio_player):
+	if sfx_stream != null and is_instance_valid(audio_player) and DisplayServer.get_name() != "headless":
 		audio_player.stop()
 		audio_player.stream = sfx_stream
 		audio_player.play()

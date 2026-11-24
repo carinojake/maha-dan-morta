@@ -21,7 +21,7 @@ func _process(_delta: float) -> bool:
 	if _tick == 4:
 		assert(_scene.active_hero_id == "bai_yueling", "Default hero must be Bai Yueling")
 		assert(_scene._total_rooms() == 10, "Chapter 1 must have 10 rooms (10,240 px)")
-		assert(_scene.enemies.size() == 3, "Ch1 Room 0 should spawn 3 enemies")
+		assert(_scene.enemies.size() == 1, "Ch1 Room 0 spawns 1 interactive tutorial cultist")
 		_scene._cast_skill_q(Vector2.RIGHT)
 		_scene._cast_skill_e()
 		_scene._cast_skill_r()
@@ -45,6 +45,7 @@ func _process(_delta: float) -> bool:
 	elif _tick == 12:
 		assert(_ch2_scene.chapter == 2, "Chapter 2 must load cleanly")
 		assert(_ch2_scene._total_rooms() == 10, "Chapter 2 must have 10 rooms")
+		assert(_ch2_scene.enemies.size() == 3, "Non-tutorial Room 0 (Ch2) must spawn standard 3 enemies")
 		for e in _ch2_scene.enemies.duplicate():
 			if is_instance_valid(e):
 				e.queue_free()

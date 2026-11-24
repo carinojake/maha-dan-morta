@@ -14,6 +14,8 @@ func _initialize():
 	var globals := root.get_node("Globals")
 	globals.set_meta("save_path", test_save)
 	globals.set_meta("chapter", 1)
+	root.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_IGNORE
+	root.content_scale_size = Vector2i(int(VIEWPORT_W), int(VIEWPORT_H))
 	root.size = Vector2i(int(VIEWPORT_W), int(VIEWPORT_H))
 	_scene = load("res://scenes/dark_jade_dungeon.tscn").instantiate()
 	root.add_child(_scene)
@@ -50,11 +52,16 @@ func _process(_delta: float) -> bool:
 		_scene.combat.add_combo(360.0, true)
 		_scene.combat.perfect_dodge_crit_ready = true
 		_scene._show_banner("ทดสอบแบนเนอร์ HUD 1280x720", 2.0)
+		if not bool(_scene.save_data.get("hud_menu_expanded", false)):
+			_scene._toggle_hud_menu()
+		_scene._start_interactive_tutorial()
 		_scene._refresh_hud()
+		_scene._on_viewport_resized()
 	elif _tick == 8:
 		_assert_in_bounds(_scene.hp_bar, "hp_bar")
 		_assert_in_bounds(_scene.sp_bar, "sp_bar")
 		_assert_in_bounds(_scene.portrait_row, "portrait_row")
+		_assert_in_bounds(_scene.room_strip, "room_strip")
 		_assert_in_bounds(_scene.room_label, "room_label")
 		_assert_in_bounds(_scene.boss_panel, "boss_panel")
 		_assert_in_bounds(_scene.banner_panel, "banner_panel")
@@ -62,6 +69,13 @@ func _process(_delta: float) -> bool:
 		_assert_in_bounds(_scene.diff_btn, "diff_btn")
 		_assert_in_bounds(_scene.combo_panel, "combo_panel")
 		_assert_in_bounds(_scene.dodge_ready_label, "dodge_ready_label")
+		_assert_in_bounds(_scene.tutorial_panel, "tutorial_panel")
+		_assert_in_bounds(_scene.tutorial_arrow_lbl, "tutorial_arrow_lbl")
+		var tr_rect: Rect2 = _scene.top_right_panel.get_global_rect()
+		if _scene.room_strip.get_global_rect().intersects(tr_rect):
+			_fail("room_strip overlaps expanded top_right_panel: %s vs %s" % [str(_scene.room_strip.get_global_rect()), str(tr_rect)])
+		if _scene.tutorial_panel.get_global_rect().intersects(tr_rect):
+			_fail("tutorial_panel overlaps expanded top_right_panel: %s vs %s" % [str(_scene.tutorial_panel.get_global_rect()), str(tr_rect)])
 		# Verify every button in top-right row fits inside viewport
 		var btn_row: Node = _scene.diff_btn.get_parent()
 		for child in btn_row.get_children():

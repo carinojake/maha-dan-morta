@@ -7,6 +7,7 @@ const ChapterData = preload("res://scripts/chapter_data.gd")
 const VfxStudio = preload("res://scripts/vfx_studio.gd")
 const MonsterData = preload("res://scripts/monster_data.gd")
 const CodexUI = preload("res://scripts/codex_ui.gd")
+const CharacterStatusUI = preload("res://scripts/character_status_ui.gd")
 const CombatSystem = preload("res://scripts/combat_system.gd")
 const CutinOverlay = preload("res://scripts/cutin_overlay.gd")
 const EquipData = preload("res://scripts/equip_data.gd")
@@ -35,14 +36,25 @@ var fx_layer: Node2D
 var sfx: Node
 var player: CharacterBody2D
 var player_sprite: Sprite2D
+var player_shadow: Polygon2D
+var player_z_height: float = 0.0
 var player_light: PointLight2D
 var camera: Camera2D
 var target_reticle: Polygon2D
 var screen_flash: ColorRect
+var parallax_bg: ParallaxBackground
+var parallax_mist_layer: ParallaxLayer
+var floor_canvas_tex: CanvasTexture
+var wall_canvas_tex: CanvasTexture
+var room_lights: Array[PointLight2D] = []
+var status_btn: Button
+var replay_btn: Button
+var home_btn: Button
+var run_max_crit_dmg: int = 0
 
 var active_hero_id: String = "bai_yueling"
 var facing_dir: Vector2 = Vector2.RIGHT
-var auto_attack_enabled: bool = true
+var auto_attack_enabled: bool = false
 var hero_hp: Dictionary = {}
 var hero_sp: Dictionary = {}
 var hero_textures: Dictionary = {}
@@ -50,8 +62,19 @@ var light_tex: Texture2D
 
 var walk_timer: float = 0.0
 var walk_step: int = 0
+var walk_dist_accum: float = 0.0
+var walk_was_moving: bool = false
+var walk_next_lead: int = 0
+var walk_dir_key: String = "walk_side"
+var walk_cycle_phase: float = 0.0
+var idle_breath_phase: float = 0.0
+var footstep_dust_timer: float = 0.0
+var cam_look_ahead: Vector2 = Vector2.ZERO
+var dungeon_max_x: int = 180
 var attack_timer: float = 0.0
+var attack_anim_duration: float = 0.28
 var pose_override_timer: float = 0.0
+var pose_override_duration: float = 0.36
 var pose_override_key: String = ""
 var q_cd: float = 0.0
 var e_cd: float = 0.0
@@ -67,11 +90,26 @@ var synergy_cd: float = 0.0
 var hazard_timer: float = 4.0
 var combat: CombatSystem = CombatSystem.new()
 var active_telegraphs: Array = []
+var dying_corpses: Array = []
+var active_float_labels: Array = []
+var float_slot_cursor: int = 0
+var end_input_guard_timer: float = 0.0
+var _prev_enter_end: bool = false
+var codex_fx_btn: Button
+var codex_shake_btn: Button
+var cultist_sheet_tex: Texture2D
+var boss_ch1_sheet_tex: Texture2D
+var active_exit_hint: Node2D = null
+var fg_canopy_layer: Node2D = null
+var ambient_motes: Array = []
+var sway_props: Array = []
+var mist_wisps: Array = []
 
 var _prev_q: bool = false
 var _prev_e: bool = false
 var _prev_r: bool = false
 var _prev_c: bool = false
+var _prev_k: bool = false
 var _prev_f: bool = false
 var _prev_space: bool = false
 var _prev_1: bool = false
@@ -79,6 +117,7 @@ var _prev_2: bool = false
 var _prev_3: bool = false
 var _prev_u: bool = false
 var _prev_h: bool = false
+var _prev_esc: bool = false
 
 var chapter: int = 1
 var current_room: int = 0
@@ -132,6 +171,35 @@ var active_boons: Dictionary = {}
 var phoenix_revive_used: bool = false
 var codex_gear_scroll: ScrollContainer
 var codex_gear_box: VBoxContainer
+var codex_ach_scroll: ScrollContainer
+var codex_ach_box: VBoxContainer
+var codex_char_scroll: ScrollContainer
+var codex_char_box: VBoxContainer
+var char_status_selected_hid: String = "bai_yueling"
+var char_status_drawer_slot: String = ""
+var char_status_preview_id: String = ""
+var codex_mirror_btn: Button
+var gear_filter: String = "all"
+var gear_target_hid: String = ""
+var gear_inspect_id: String = "jade_sword"
+var end_summary_box: VBoxContainer
+var toast_panel: PanelContainer
+var toast_label: Label
+var toast_timer: float = 0.0
+var run_hero_damage: Dictionary = {}
+var run_elapsed_time: float = 0.0
+var run_max_combo_hits: int = 0
+var run_max_combo_rank: String = "D"
+var run_perfect_dodges: int = 0
+var run_reactions: int = 0
+var run_jade_earned: int = 0
+var run_drops: Array = []
+var attack_hit_counter: int = 0
+var tutorial_step: int = 0 # 0=inactive, 1=dodge, 2=skill_mark, 3=swap_react
+var tutorial_panel: PanelContainer
+var tutorial_lbl: Label
+var tutorial_skip_btn: Button
+var tutorial_arrow_lbl: Label
 var boon_granted_rooms: Dictionary = {}
 var boss_rush_mode: bool = false
 var boss_panel: PanelContainer
@@ -155,8 +223,21 @@ var codex_bgm_btn: Button
 var codex_save_input: LineEdit
 var _landscape_hint_shown: bool = false
 var bot_center_row: HBoxContainer
+var top_center_box: VBoxContainer
+var room_strip: PanelContainer
+var skill_auto_pill: PanelContainer
+var skill_q_pill: PanelContainer
+var skill_e_pill: PanelContainer
+var skill_r_pill: PanelContainer
+var skill_dash_pill: PanelContainer
 var mobile_controls: Control
 var touch_btn: Button
+var speed_btn: Button
+var menu_toggle_btn: Button
+var top_right_panel: VBoxContainer
+var top_right_btn_grid: GridContainer
+var _prev_m: bool = false
+var game_speed_mult: float = 1.0
 var _touch_attack_queued: bool = false
 var _touch_dash_queued: bool = false
 
@@ -175,8 +256,15 @@ func _ready():
 	if Globals.has_meta("save_path"):
 		save_path = str(Globals.get_meta("save_path"))
 	save_data = SaveManager.load_data(save_path)
+	game_speed_mult = 1.5 if float(save_data.get("game_speed", 1.0)) >= 1.25 else 1.0
+	auto_attack_enabled = bool(Globals.get_meta("auto_attack", bool(save_data.get("auto_attack", false))))
+	VfxStudio.set_fx_reduced(bool(save_data.get("fx_reduced", false)))
 	active_party = SaveManager._sanitize_party(save_data.get("party", HeroData.DEFAULT_PARTY))
 	light_tex = load("res://assets/env/light_radial.png")
+	if ResourceLoader.exists("res://assets/monsters/shadow_cultist_sheet.png"):
+		cultist_sheet_tex = load("res://assets/monsters/shadow_cultist_sheet.png")
+	if ResourceLoader.exists("res://assets/monsters/boss_ch1_sheet.png"):
+		boss_ch1_sheet_tex = load("res://assets/monsters/boss_ch1_sheet.png")
 	sfx = SfxSynth.new()
 	add_child(sfx)
 	sfx.set_bgm_enabled(bool(save_data.get("bgm_enabled", true)))
@@ -194,9 +282,14 @@ func _ready():
 
 
 func _preload_hero_textures():
-	var keys := ["stride_0", "stride_1", "stride_2", "strike_0", "strike_1", "strike_2", "dash", "hurt", "dead", "portrait", "skill_1", "skill_2", "special", "ultimate"]
+	var keys := [
+		"stride_0", "stride_1", "stride_2",
+		"strike_0", "strike_1", "strike_2",
+		"walk_down", "walk_up", "walk_side", "attack_4f", "skill_4f",
+		"dash", "hurt", "dead", "portrait", "skill_1", "skill_2", "special", "ultimate"
+	]
 	for hid in HeroData.HERO_ORDER:
-		hero_textures[hid] = {"default": {}, "alt": {}}
+		hero_textures[hid] = {"default": {}, "alt": {}, "alt_snow": {}}
 		for k in keys:
 			var p_def := "res://assets/heroes/%s/%s.png" % [hid, k]
 			if ResourceLoader.exists(p_def):
@@ -204,11 +297,19 @@ func _preload_hero_textures():
 			var p_alt := "res://assets/heroes/%s/alt/%s.png" % [hid, k]
 			if ResourceLoader.exists(p_alt):
 				hero_textures[hid]["alt"][k] = load(p_alt)
+				hero_textures[hid]["alt_snow"][k] = hero_textures[hid]["alt"][k]
+			var p_snow := "res://assets/heroes/%s/alt_snow/%s.png" % [hid, k]
+			if ResourceLoader.exists(p_snow):
+				hero_textures[hid]["alt_snow"][k] = load(p_snow)
+				if not hero_textures[hid]["alt"].has(k):
+					hero_textures[hid]["alt"][k] = hero_textures[hid]["alt_snow"][k]
 
 
 func _get_hero_tex(hid: String, key: String, fallback: Texture2D = null) -> Texture2D:
 	var costumes: Dictionary = save_data.get("costumes", {})
 	var mode: String = str(costumes.get(hid, "default"))
+	if mode == "alt_snow":
+		mode = "alt"
 	var hdict: Dictionary = hero_textures.get(hid, {})
 	var cdict: Dictionary = hdict.get(mode, {})
 	if cdict.has(key):
@@ -217,42 +318,220 @@ func _get_hero_tex(hid: String, key: String, fallback: Texture2D = null) -> Text
 	return ddict.get(key, fallback)
 
 
+func _has_4dir_sheet(hid: String) -> bool:
+	return _get_hero_tex(hid, "walk_down") != null and _get_hero_tex(hid, "walk_up") != null and _get_hero_tex(hid, "walk_side") != null and _get_hero_tex(hid, "attack_4f") != null and _get_hero_tex(hid, "skill_4f") != null
+
+
+func _set_player_strip(tex: Texture2D, hframes_cnt: int = 1, frame_idx: int = 0):
+	if not is_instance_valid(player_sprite) or tex == null:
+		return
+	player_sprite.texture = tex
+	player_sprite.hframes = maxi(1, hframes_cnt)
+	player_sprite.vframes = 1
+	player_sprite.frame = clampi(frame_idx, 0, maxi(0, hframes_cnt - 1))
+
+
+func _update_walk_direction(dir_vec: Vector2):
+	if dir_vec.length() <= 0.08:
+		return
+	var ax := absf(dir_vec.x)
+	var ay := absf(dir_vec.y)
+	# Pure 45-degree diagonals (ax == ay) always use side-profile stride + flip_h
+	# while preserving hysteresis [1.12..1.38] against analog stick jitter.
+	var switch_to_vert := (ay > ax * 1.38) if walk_dir_key == "walk_side" else (ay > ax * 1.12)
+	if switch_to_vert:
+		walk_dir_key = "walk_down" if dir_vec.y > 0.0 else "walk_up"
+		if _has_4dir_sheet(active_hero_id) and is_instance_valid(player_sprite):
+			player_sprite.flip_h = false
+	else:
+		walk_dir_key = "walk_side"
+		if is_instance_valid(player_sprite):
+			if dir_vec.x < -0.05:
+				player_sprite.flip_h = true
+			elif dir_vec.x > 0.05:
+				player_sprite.flip_h = false
+
+
 func _get_hero_stat(hid: String, key: String) -> float:
-	var base := float(HeroData.HEROES[hid][key])
+	var base := float(HeroData.HEROES[hid].get(key, 0.0))
 	var cu: Dictionary = save_data.get("core_upgrades", {})
-	var gear := EquipData.get_bonuses_for_hero(save_data.get("hero_gear", {}), hid)
+	var gear := EquipData.get_bonuses_for_hero(save_data.get("hero_gear", {}), hid, save_data.get("gear_levels", {}))
 	if key == "max_hp":
-		return base + float(cu.get("hp_lv", 0)) * 25.0 + float(gear["max_hp"])
+		var val := base + float(cu.get("hp_lv", 0)) * 25.0 + float(gear["max_hp"])
+		return val * (1.0 + float(gear.get("max_hp_pct", 0.0)))
 	elif key == "max_sp":
-		return base + float(cu.get("sp_lv", 0)) * 15.0 + float(gear["max_sp"]) + (30.0 if active_boons.has("qi_surge") else 0.0)
+		var val := base + float(cu.get("sp_lv", 0)) * 15.0 + float(gear["max_sp"]) + (30.0 if active_boons.has("qi_surge") else 0.0)
+		return val * (1.0 + float(gear.get("max_sp_pct", 0.0)))
 	elif key == "atk":
 		var val := base + float(cu.get("atk_lv", 0)) * 6.0 + float(gear["atk"])
+		val *= (1.0 + float(gear.get("atk_pct", 0.0)))
 		if active_boons.has("lightning_edge"):
 			val *= 1.22
 		return val
 	elif key == "crit":
 		return base + float(gear["crit"]) + (0.18 if active_boons.has("crit_heaven") else 0.0)
+	elif key == "dmg_red":
+		return float(gear.get("dmg_red", 0.0))
+	elif key == "cd_red":
+		return float(gear.get("cd_red", 0.0))
 	elif key == "speed":
 		return base * (1.15 if active_boons.has("swift_blade") else 1.0)
 	return base
 
 
 func _init_hero_stats():
+	run_hero_damage.clear()
+	run_elapsed_time = 0.0
+	run_max_combo_hits = 0
+	run_max_combo_rank = "D"
+	run_perfect_dodges = 0
+	run_reactions = 0
+	run_jade_earned = 0
+	run_drops.clear()
+	attack_hit_counter = 0
 	for hid in HeroData.HERO_ORDER:
 		hero_hp[hid] = _get_hero_stat(hid, "max_hp")
 		hero_sp[hid] = _get_hero_stat(hid, "max_sp")
+		run_hero_damage[hid] = 0
+
+
+func _build_abyss_backdrop(cdata: Dictionary, max_x: int):
+	var world_w := float(max_x * TILE_SIZE) + 2800.0
+	var ftint: Color = cdata["floor_tint"]
+	var lcol: Color = cdata["light_color"]
+	var sky_col := Color(ftint.r * 0.14, ftint.g * 0.16, ftint.b * 0.22, 1.0)
+
+	var fallback_bg := ColorRect.new()
+	fallback_bg.color = sky_col
+	fallback_bg.position = Vector2(-1200.0, -1200.0)
+	fallback_bg.size = Vector2(world_w, 3400.0)
+	fallback_bg.z_index = -100
+	add_child(fallback_bg)
+
+	parallax_bg = ParallaxBackground.new()
+	parallax_bg.layer = -90
+	add_child(parallax_bg)
+
+	# Layer 1: Deep Valley Sky
+	var sky_layer := ParallaxLayer.new()
+	sky_layer.motion_scale = Vector2(0.02, 0.02)
+	parallax_bg.add_child(sky_layer)
+	var sky_rect := ColorRect.new()
+	sky_rect.color = sky_col
+	sky_rect.position = Vector2(-1800.0, -1400.0)
+	sky_rect.size = Vector2(6400.0, 3600.0)
+	sky_layer.add_child(sky_rect)
+
+	# Layer 2: Distant Mountain Ridge (0.07x) + Mid-Valley Peaks (0.14x) for multi-plane depth
+	var ridge_layer := ParallaxLayer.new()
+	ridge_layer.motion_scale = Vector2(0.07, 0.07)
+	parallax_bg.add_child(ridge_layer)
+	var ridge_col := Color(ftint.r * 0.11, ftint.g * 0.15, ftint.b * 0.20, 0.72)
+	for i in range(-2, 14):
+		var rx_p := float(i) * 380.0
+		var rh := 270.0 + float((i * 97) % 140)
+		var ridge := Polygon2D.new()
+		ridge.polygon = PackedVector2Array([
+			Vector2(rx_p - 280.0, 920.0),
+			Vector2(rx_p - 60.0, 390.0 - rh),
+			Vector2(rx_p + 120.0, 430.0 - rh * 0.80),
+			Vector2(rx_p + 320.0, 920.0),
+		])
+		ridge.color = ridge_col
+		ridge_layer.add_child(ridge)
+
+	var peak_layer := ParallaxLayer.new()
+	peak_layer.motion_scale = Vector2(0.14, 0.14)
+	parallax_bg.add_child(peak_layer)
+	var peak_col := Color(ftint.r * 0.07, ftint.g * 0.09, ftint.b * 0.14, 0.92)
+	for i in range(-2, 15):
+		var px := float(i) * 310.0
+		var h1 := 200.0 + float((i * 73) % 125)
+		var peak := Polygon2D.new()
+		peak.polygon = PackedVector2Array([
+			Vector2(px - 220.0, 920.0),
+			Vector2(px - 40.0, 430.0 - h1),
+			Vector2(px + 95.0, 470.0 - h1 * 0.72),
+			Vector2(px + 260.0, 920.0),
+		])
+		peak.color = peak_col
+		peak_layer.add_child(peak)
+
+	# Layer 3: Drifting Valley Mist Clouds (0.24x)
+	parallax_mist_layer = ParallaxLayer.new()
+	parallax_mist_layer.motion_scale = Vector2(0.24, 0.24)
+	parallax_bg.add_child(parallax_mist_layer)
+	for m in range(18):
+		var cloud := Polygon2D.new()
+		var rx := 155.0 + float((m * 47) % 115)
+		var ry := 34.0 + float((m * 19) % 24)
+		cloud.polygon = _make_ellipse(rx, ry, 18)
+		cloud.position = Vector2(float(m) * 240.0 - 400.0, 110.0 + float((m * 137) % 580))
+		cloud.color = Color(lcol.r, lcol.g, lcol.b, 0.11)
+		parallax_mist_layer.add_child(cloud)
+
+
+func _spawn_wall_25d(pos: Vector2, wall_tex: Texture2D, wtint: Color, has_floor_below: bool, is_bottom_edge: bool):
+	var root := Node2D.new()
+	root.position = pos
+	var w := Sprite2D.new()
+	w.texture = wall_tex
+	var tw := maxf(1.0, float(wall_tex.get_width()))
+	var th := maxf(1.0, float(wall_tex.get_height()))
+	w.scale = Vector2(float(TILE_SIZE) / tw, float(TILE_SIZE) / th)
+	w.modulate = wtint
+	root.add_child(w)
+	if has_floor_below:
+		w.offset = Vector2(0.0, -10.0 * (th / float(TILE_SIZE)))
+		var top_ridge := ColorRect.new()
+		top_ridge.color = wtint.lightened(0.26)
+		top_ridge.position = Vector2(-32.0, -42.0)
+		top_ridge.size = Vector2(float(TILE_SIZE), 6.0)
+		root.add_child(top_ridge)
+
+		var cast_sh := ColorRect.new()
+		cast_sh.color = Color(0.0, 0.0, 0.0, 0.34)
+		cast_sh.position = pos + Vector2(-32.0, 22.0)
+		cast_sh.size = Vector2(float(TILE_SIZE), 18.0)
+		floor_layer.add_child(cast_sh)
+	elif is_bottom_edge:
+		var cliff := ColorRect.new()
+		cliff.color = wtint.darkened(0.55)
+		cliff.position = Vector2(-32.0, 32.0)
+		cliff.size = Vector2(float(TILE_SIZE), 44.0)
+		root.add_child(cliff)
+		var cliff_rim := ColorRect.new()
+		cliff_rim.color = wtint.darkened(0.32)
+		cliff_rim.position = Vector2(-32.0, 30.0)
+		cliff_rim.size = Vector2(float(TILE_SIZE), 4.0)
+		root.add_child(cliff_rim)
+	world_node.add_child(root)
+
+
+func _make_canvas_tex(diffuse_path: String, normal_path: String, shininess: float = 0.32) -> CanvasTexture:
+	var ct := CanvasTexture.new()
+	ct.diffuse_texture = load(diffuse_path)
+	if ResourceLoader.exists(normal_path):
+		ct.normal_texture = load(normal_path)
+	ct.specular_color = Color(0.58, 0.74, 0.90, 1.0)
+	ct.specular_shininess = shininess
+	return ct
+
+
+func _update_active_room_lights():
+	for l in room_lights:
+		if not is_instance_valid(l):
+			continue
+		var r_idx := int(l.get_meta("room_idx", -1))
+		l.enabled = (r_idx == current_room)
 
 
 func _build_environment():
 	var cdata := ChapterData.get_chapter(chapter)
 	var total_rooms := _total_rooms()
 	var max_x := total_rooms * ROOM_STRIDE
-	var bg := ColorRect.new()
-	bg.color = Color(0.04, 0.04, 0.06, 1.0)
-	bg.position = Vector2(-1000, -1000)
-	bg.size = Vector2(max_x * TILE_SIZE + 2500, 3000)
-	bg.z_index = -100
-	add_child(bg)
+	dungeon_max_x = max_x
+	_build_abyss_backdrop(cdata, max_x)
 
 	var mod := CanvasModulate.new()
 	mod.color = cdata["mod_color"]
@@ -270,9 +549,22 @@ func _build_environment():
 	fx_layer.z_index = 20
 	add_child(fx_layer)
 
+	fg_canopy_layer = Node2D.new()
+	fg_canopy_layer.z_index = 26
+	add_child(fg_canopy_layer)
+	sway_props.clear()
+	mist_wisps.clear()
+	ambient_motes.clear()
+
 	var use_bamboo: bool = bool(cdata["use_bamboo"])
-	var floor_tex: Texture2D = load("res://assets/env/floor_bamboo.png" if use_bamboo else "res://assets/env/floor_slate.png")
-	var wall_tex: Texture2D = load("res://assets/env/wall_bamboo.png" if use_bamboo else "res://assets/env/wall_stone.png")
+	var floor_diff_path := "res://assets/env/floor_bamboo.png" if use_bamboo else "res://assets/env/floor_slate.png"
+	var floor_norm_path := "res://assets/env/floor_bamboo_n.png" if use_bamboo else "res://assets/env/floor_slate_n.png"
+	var wall_diff_path := "res://assets/env/wall_bamboo.png" if use_bamboo else "res://assets/env/wall_stone.png"
+	var wall_norm_path := "res://assets/env/wall_bamboo_n.png" if use_bamboo else "res://assets/env/wall_stone_n.png"
+	floor_canvas_tex = _make_canvas_tex(floor_diff_path, floor_norm_path, 0.34)
+	wall_canvas_tex = _make_canvas_tex(wall_diff_path, wall_norm_path, 0.26)
+	var floor_tex: Texture2D = floor_canvas_tex
+	var wall_tex: Texture2D = wall_canvas_tex
 	var crystal_tex: Texture2D = load("res://assets/env/prop_jade_crystal.png")
 	var lantern_tex: Texture2D = load("res://assets/env/prop_lantern.png")
 	var bagua_tex: Texture2D = load("res://assets/env/prop_bagua_floor.png")
@@ -299,15 +591,23 @@ func _build_environment():
 
 	var ftint: Color = cdata["floor_tint"]
 	var wtint: Color = cdata["wall_tint"]
+	var slate_boss_tex: CanvasTexture = _make_canvas_tex("res://assets/env/floor_slate.png", "res://assets/env/floor_slate_n.png", 0.38) if use_bamboo else floor_canvas_tex
 	for x in range(0, max_x):
 		for y in range(0, 9):
 			var cell := Vector2i(x, y)
 			var pos := Vector2(x * TILE_SIZE + 32, y * TILE_SIZE + 32)
 			if walkable.has(cell):
+				var r_of_tile := int(x / ROOM_STRIDE)
+				var is_boss_tile := (r_of_tile == total_rooms - 1)
 				var f := Sprite2D.new()
-				f.texture = floor_tex
+				f.texture = slate_boss_tex if (is_boss_tile and use_bamboo) else floor_tex
 				f.position = pos
-				f.modulate = ftint
+				f.scale = Vector2(float(TILE_SIZE) / maxf(1.0, float(f.texture.get_width())), float(TILE_SIZE) / maxf(1.0, float(f.texture.get_height())))
+				var checker_shift := 0.042 if ((x + y) % 2 == 0) else -0.028
+				var edge_darken := 0.16 if (y == 1 or y == 7) else (0.05 if (y == 2 or y == 6) else 0.0)
+				var center_lift := 0.055 if y == 4 else 0.0
+				var base_ft := Color(0.58, 0.52, 0.56, 1.0) if (is_boss_tile and chapter == 1) else ftint
+				f.modulate = base_ft.lightened(checker_shift + center_lift).darkened(edge_darken)
 				floor_layer.add_child(f)
 			else:
 				var adj := false
@@ -316,64 +616,224 @@ func _build_environment():
 						adj = true
 						break
 				if adj:
-					var w := Sprite2D.new()
-					w.texture = wall_tex
-					w.position = pos
-					w.modulate = wtint
-					world_node.add_child(w)
+					var has_floor_below := walkable.has(cell + Vector2i(0, 1))
+					var is_bottom_edge := walkable.has(cell + Vector2i(0, -1)) and not has_floor_below
+					_spawn_wall_25d(pos, wall_tex, wtint, has_floor_below, is_bottom_edge)
 					var col := CollisionShape2D.new()
 					var shape := RectangleShape2D.new()
-					shape.size = Vector2(TILE_SIZE, TILE_SIZE)
+					var is_corridor_corner := (y == 2 or y == 6) and (walkable.has(cell + Vector2i(1, 1)) or walkable.has(cell + Vector2i(-1, 1)) or walkable.has(cell + Vector2i(1, -1)) or walkable.has(cell + Vector2i(-1, -1)))
+					shape.size = Vector2(TILE_SIZE - 8.0, TILE_SIZE - 8.0) if is_corridor_corner else Vector2(TILE_SIZE, TILE_SIZE)
 					col.shape = shape
 					col.position = pos
 					wall_body.add_child(col)
 
 	var lcol: Color = cdata["light_color"]
 	for r in range(total_rooms):
+		var is_boss_room := (r == total_rooms - 1)
 		var base_x := float(r * ROOM_STRIDE)
 		var bx := base_x + 7.5
+		var rx0_px := (base_x + 1.0) * TILE_SIZE
+		var rx1_px := (base_x + 14.0) * TILE_SIZE
+		var ry0_px := 1.0 * TILE_SIZE
+		var ry1_px := 8.0 * TILE_SIZE
+
+		# Distinct bevelled perimeter border curb so walkable floor separates cleanly from walls/cliffs
+		var curb_col := Color(0.96, 0.56, 0.30, 0.42) if (is_boss_room and chapter == 1) else Color(lcol.r, lcol.g, lcol.b, 0.34)
+		var curb_pts := PackedVector2Array([
+			Vector2(rx0_px + 4.0, ry0_px + 4.0),
+			Vector2(rx1_px - 4.0, ry0_px + 4.0),
+			Vector2(rx1_px - 4.0, 3.0 * TILE_SIZE),
+		])
+		var curb_top := Line2D.new()
+		curb_top.points = curb_pts
+		curb_top.width = 2.5
+		curb_top.default_color = curb_col
+		curb_top.z_index = 1
+		floor_layer.add_child(curb_top)
+
+		var curb_bot := Line2D.new()
+		curb_bot.points = PackedVector2Array([
+			Vector2(rx1_px - 4.0, 6.0 * TILE_SIZE),
+			Vector2(rx1_px - 4.0, ry1_px - 4.0),
+			Vector2(rx0_px + 4.0, ry1_px - 4.0),
+			Vector2(rx0_px + 4.0, 6.0 * TILE_SIZE if r > 0 else ry0_px + 4.0),
+		])
+		curb_bot.width = 2.5
+		curb_bot.default_color = curb_col
+		curb_bot.z_index = 1
+		floor_layer.add_child(curb_bot)
+
+		# Stepping-stone navigation path guiding eye toward center Bagua & Eastern Exit Gate
+		var stone_col := Color(0.28, 0.22, 0.24, 0.48) if (is_boss_room and chapter == 1) else Color(0.16, 0.26, 0.24, 0.38)
+		var stone_rim := Color(0.95, 0.58, 0.28, 0.26) if (is_boss_room and chapter == 1) else Color(0.55, 0.90, 0.80, 0.22)
+		for st_i in range(7):
+			var st_x := (base_x + 2.2 + float(st_i) * 1.85) * TILE_SIZE
+			if absf(st_x - bx * TILE_SIZE) < 76.0:
+				continue
+			var st := Polygon2D.new()
+			st.polygon = _make_ellipse(26.0, 13.0, 10)
+			st.color = stone_col
+			st.position = Vector2(st_x, 4.5 * TILE_SIZE + (5.0 if st_i % 2 == 0 else -5.0))
+			st.z_index = 1
+			floor_layer.add_child(st)
+			var st_line := Line2D.new()
+			var sp_pts := _make_ellipse(26.0, 13.0, 10)
+			sp_pts.append(sp_pts[0])
+			st_line.points = sp_pts
+			st_line.width = 1.2
+			st_line.default_color = stone_rim
+			st_line.position = st.position
+			st_line.z_index = 1
+			floor_layer.add_child(st_line)
+
 		var bag := Sprite2D.new()
 		bag.texture = bagua_tex
 		bag.position = Vector2(bx, 4.5) * TILE_SIZE
-		bag.modulate = Color(ftint.r, ftint.g, ftint.b, 0.72)
+		bag.scale = Vector2(0.96, 0.96) if is_boss_room else Vector2(0.74, 0.74)
+		var bag_alpha := 0.46 if is_boss_room else (0.34 if r == 4 else 0.20)
+		bag.modulate = Color(1.0, 0.58, 0.30, bag_alpha) if (is_boss_room and chapter == 1) else Color(0.72, 0.92, 0.88, bag_alpha)
 		floor_layer.add_child(bag)
 
-		# Braziers & Lanterns per room
-		for bsp in [Vector2(base_x + 2.5, 2.0), Vector2(base_x + 12.2, 2.0), Vector2(base_x + 12.2, 6.8)]:
-			var b := Sprite2D.new()
-			b.texture = lantern_tex if use_bamboo else brazier_tex
-			b.position = bsp * TILE_SIZE
-			b.offset = Vector2(0, -26)
-			world_node.add_child(b)
-			_add_light(b, lcol, 1.65, 3.0)
+		if is_boss_room:
+			# Grand Soul-Furnace Octagon Ritual Seal in Boss Arena
+			var seal_ring := Line2D.new()
+			var seal_pts := _make_ellipse(168.0, 118.0, 24)
+			seal_pts.append(seal_pts[0])
+			seal_ring.points = seal_pts
+			seal_ring.width = 3.0
+			seal_ring.default_color = Color(0.98, 0.48, 0.22, 0.38) if chapter == 1 else Color(lcol.r, lcol.g, lcol.b, 0.36)
+			seal_ring.position = Vector2(bx, 4.5) * TILE_SIZE
+			seal_ring.z_index = 1
+			floor_layer.add_child(seal_ring)
 
-		# Zone-specific props across the 10 rooms
-		if use_bamboo:
-			var bm := Sprite2D.new()
-			bm.texture = bamboo_tex if r % 2 == 0 else tree_tex
-			bm.position = Vector2(base_x + 4.2, 2.1 if r % 2 == 0 else 6.8) * TILE_SIZE
-			bm.offset = Vector2(0, -54)
-			world_node.add_child(bm)
+		# Low-lying atmospheric mist pools for depth & "ป่าไผ่หมอกพิษ" / "โถงเตาหลอม" storytelling
+		var mist_col := Color(0.96, 0.42, 0.18, 0.075) if (is_boss_room and chapter == 1) else (Color(0.24, 0.88, 0.64, 0.095) if use_bamboo else Color(lcol.r, lcol.g, lcol.b, 0.07))
+		var m_idx := 0
+		for mp in [Vector2(base_x + 3.8, 2.0), Vector2(base_x + 10.8, 7.0), Vector2(base_x + 7.4, 1.85), Vector2(base_x + 4.8, 7.1)]:
+			var mist := Polygon2D.new()
+			mist.polygon = _make_ellipse(142.0, 38.0, 16)
+			mist.color = mist_col
+			var m_pos: Vector2 = mp * TILE_SIZE
+			mist.position = m_pos
+			mist.z_index = 1
+			floor_layer.add_child(mist)
+			mist_wisps.append({"node": mist, "base_pos": m_pos, "phase": float(r * 3 + m_idx) * 1.35, "room": r})
+			m_idx += 1
+
+		# Braziers & Lanterns strictly along room perimeter + warm amber contrast against cool jade mist
+		var light_positions := [
+			Vector2(base_x + 2.2, 1.65),
+			Vector2(base_x + 12.6, 1.65),
+			Vector2(base_x + 2.2, 7.45),
+			Vector2(base_x + 12.6, 7.45),
+		] if is_boss_room else [
+			Vector2(base_x + 2.3, 1.68),
+			Vector2(base_x + 12.5, 1.68),
+			Vector2(base_x + 12.5, 7.42),
+		]
+		var warm_lantern_col := Color(1.0, 0.64, 0.28, 1.0) if (use_bamboo or (is_boss_room and chapter == 1)) else lcol
+		for bsp in light_positions:
+			var b := Sprite2D.new()
+			b.texture = brazier_tex if is_boss_room else (lantern_tex if use_bamboo else brazier_tex)
+			b.position = bsp * TILE_SIZE
+			b.scale = Vector2(0.76, 0.76) if is_boss_room else Vector2(0.66, 0.66)
+			b.offset = Vector2(0, -56) if b.texture == brazier_tex else Vector2(0, -68)
+			world_node.add_child(b)
+			_add_prop_shadow(b, 20.0, 8.0, 4.0)
+			_add_light(b, warm_lantern_col, 1.28 if is_boss_room else 1.15, 3.8, r)
+
+		# Perimeter props kept strictly outside combat lane (y <= 1.68 or y >= 7.55) with true root Y-sort offsets
+		if is_boss_room and chapter == 1:
+			# Place tall dragon pillars strictly along the northern back wall so they never occlude the arena floor
+			for dp_pos in [Vector2(base_x + 3.8, 1.56), Vector2(base_x + 5.8, 1.56), Vector2(base_x + 9.2, 1.56), Vector2(base_x + 11.2, 1.56)]:
+				var dp := Sprite2D.new()
+				dp.texture = pillar_tex
+				dp.position = dp_pos * TILE_SIZE
+				dp.scale = Vector2(0.84, 0.84)
+				dp.offset = Vector2(0, -98)
+				dp.modulate = Color(0.92, 0.76, 0.72, 0.96)
+				world_node.add_child(dp)
+				_add_prop_shadow(dp, 26.0, 10.0, 4.0)
+			for cr_pos in [Vector2(base_x + 5.2, 7.62), Vector2(base_x + 9.8, 7.62)]:
+				var b_cr := Sprite2D.new()
+				b_cr.texture = crystal_tex
+				b_cr.position = cr_pos * TILE_SIZE
+				b_cr.scale = Vector2(0.58, 0.58)
+				b_cr.offset = Vector2(0, -64)
+				b_cr.modulate = Color(1.0, 0.54, 0.26, 0.92)
+				world_node.add_child(b_cr)
+				_add_prop_shadow(b_cr, 18.0, 7.0, 4.0)
+			var boss_bn := Sprite2D.new()
+			boss_bn.texture = banner_tex
+			boss_bn.position = Vector2(base_x + 7.5, 1.38) * TILE_SIZE
+			boss_bn.scale = Vector2(0.78, 0.78)
+			boss_bn.offset = Vector2(0, -88)
+			world_node.add_child(boss_bn)
+			sway_props.append({"node": boss_bn, "phase": float(r) * 0.9, "amp": 1.6, "room": r})
 		else:
-			if r % 2 == 0:
-				var cr := Sprite2D.new()
-				cr.texture = crystal_tex
-				cr.position = Vector2(base_x + 3.2, 6.8) * TILE_SIZE
-				cr.offset = Vector2(0, -24)
-				cr.modulate = lcol.lightened(0.35)
-				world_node.add_child(cr)
+			var p_node := Sprite2D.new()
+			p_node.texture = bamboo_tex if use_bamboo else pillar_tex
+			p_node.position = Vector2(base_x + 3.8, 1.58) * TILE_SIZE
+			p_node.scale = Vector2(0.84, 0.84)
+			p_node.offset = Vector2(0, -106) if use_bamboo else Vector2(0, -98)
+			p_node.modulate = ftint.lightened(0.18)
+			world_node.add_child(p_node)
+			_add_prop_shadow(p_node, 28.0, 10.0, 4.0)
+			if use_bamboo:
+				sway_props.append({"node": p_node, "phase": float(r) * 1.1, "amp": 1.4, "room": r})
+
+			if use_bamboo:
+				for bp_cfg in [
+					[bamboo_tex, Vector2(base_x + 1.8, 7.65), Vector2(0.84, 0.84), 0.7],
+					[tree_tex if r % 2 == 1 else bamboo_tex, Vector2(base_x + 10.6, 1.56), Vector2(0.86, 0.86), 1.9],
+					[bamboo_tex, Vector2(base_x + 6.6, 7.72), Vector2(0.74, 0.74), 3.1],
+				]:
+					var bm := Sprite2D.new()
+					bm.texture = bp_cfg[0]
+					bm.position = bp_cfg[1] * TILE_SIZE
+					bm.scale = bp_cfg[2]
+					bm.offset = Vector2(0, -106)
+					bm.modulate = ftint.lightened(0.20)
+					world_node.add_child(bm)
+					_add_prop_shadow(bm, 28.0, 10.0, 4.0)
+					sway_props.append({"node": bm, "phase": float(r) + float(bp_cfg[3]), "amp": 1.5, "room": r})
+				var cr_jade := Sprite2D.new()
+				cr_jade.texture = crystal_tex
+				cr_jade.position = Vector2(base_x + 9.4, 7.58) * TILE_SIZE
+				cr_jade.scale = Vector2(0.60, 0.60)
+				cr_jade.offset = Vector2(0, -64)
+				cr_jade.modulate = Color(0.42, 0.96, 0.78, 0.94)
+				world_node.add_child(cr_jade)
+				_add_prop_shadow(cr_jade, 18.0, 7.0, 4.0)
+
+				# Foreground silhouette canopy along extreme cliff edge (y=8.55, far below walkable floor y=1..7)
+				for fg_x in [base_x + 3.4, base_x + 11.2]:
+					var fg_bm := Sprite2D.new()
+					fg_bm.texture = bamboo_tex
+					fg_bm.position = Vector2(fg_x, 8.62) * TILE_SIZE
+					fg_bm.scale = Vector2(0.95, 0.90)
+					fg_bm.offset = Vector2(0, -106)
+					fg_bm.modulate = Color(0.04, 0.11, 0.10, 0.38)
+					fg_canopy_layer.add_child(fg_bm)
+					sway_props.append({"node": fg_bm, "phase": fg_x * 0.4, "amp": 2.0, "room": r})
 			else:
-				var p := Sprite2D.new()
-				p.texture = pillar_tex
-				p.position = Vector2(base_x + 4.2, 2.3) * TILE_SIZE
-				p.offset = Vector2(0, -54)
-				p.modulate = ftint
-				world_node.add_child(p)
-			var bn := Sprite2D.new()
-			bn.texture = banner_tex
-			bn.position = Vector2(base_x + 7.5, 1.4) * TILE_SIZE
-			bn.offset = Vector2(0, -40)
-			world_node.add_child(bn)
+				if r % 2 == 0:
+					var cr := Sprite2D.new()
+					cr.texture = crystal_tex
+					cr.position = Vector2(base_x + 3.2, 7.52) * TILE_SIZE
+					cr.scale = Vector2(0.72, 0.72)
+					cr.offset = Vector2(0, -64)
+					cr.modulate = lcol.lightened(0.42)
+					world_node.add_child(cr)
+					_add_prop_shadow(cr, 20.0, 8.0, 4.0)
+				var bn := Sprite2D.new()
+				bn.texture = banner_tex
+				bn.position = Vector2(base_x + 7.5, 1.38) * TILE_SIZE
+				bn.scale = Vector2(0.72, 0.72)
+				bn.offset = Vector2(0, -88)
+				world_node.add_child(bn)
+				_add_prop_shadow(bn, 18.0, 7.0, 4.0)
+				sway_props.append({"node": bn, "phase": float(r) * 0.8, "amp": 1.4, "room": r})
 
 		# Sawblade traps in mechanical / blade chapters (Ch 3, 6, 7, 10) or odd combat rooms
 		if (chapter in [3, 6, 7, 10] and r in [0, 1, 2, 3, 5, 6, 7]) or (r in [2, 6]):
@@ -381,26 +841,73 @@ func _build_environment():
 			_spawn_sawblade_trap(Vector2(base_x + 7.5, 6.2) * TILE_SIZE)
 
 	for r in range(total_rooms - 1):
-		var gx := 14.5 + float(r * ROOM_STRIDE)
+		var gx := 14.15 + float(r * ROOM_STRIDE)
+		var gate_pos := Vector2(gx * TILE_SIZE, 4.5 * TILE_SIZE)
+		# Permanent stone/jade archway pillars framing the eastern doorway so exit is always readable
+		for py_tile in [2.85, 6.18]:
+			var arch_p := Sprite2D.new()
+			arch_p.texture = pillar_tex
+			arch_p.position = Vector2((gx - 0.18) * TILE_SIZE, py_tile * TILE_SIZE)
+			arch_p.scale = Vector2(0.58, 0.56)
+			arch_p.offset = Vector2(0, -96)
+			arch_p.modulate = Color(0.68, 0.94, 0.86, 0.92) if use_bamboo else wtint.lightened(0.24)
+			world_node.add_child(arch_p)
+			_add_prop_shadow(arch_p, 16.0, 6.0, 3.0)
+
+		var thresh := Polygon2D.new()
+		thresh.polygon = PackedVector2Array([
+			Vector2(-14.0, -TILE_SIZE * 1.42),
+			Vector2(18.0, -TILE_SIZE * 1.42),
+			Vector2(18.0, TILE_SIZE * 1.42),
+			Vector2(-14.0, TILE_SIZE * 1.42),
+		])
+		thresh.color = Color(lcol.r, lcol.g, lcol.b, 0.14)
+		thresh.position = gate_pos
+		thresh.z_index = 1
+		floor_layer.add_child(thresh)
+
 		var gate := StaticBody2D.new()
-		gate.position = Vector2(gx * TILE_SIZE, 4.5 * TILE_SIZE)
+		gate.position = gate_pos
 		var gcol := CollisionShape2D.new()
 		var gshape := RectangleShape2D.new()
 		gshape.size = Vector2(40, TILE_SIZE * 3.0)
 		gcol.shape = gshape
 		gate.add_child(gcol)
+
+		var gband := Polygon2D.new()
+		gband.polygon = PackedVector2Array([
+			Vector2(-8.0, -TILE_SIZE * 1.45),
+			Vector2(8.0, -TILE_SIZE * 1.45),
+			Vector2(8.0, TILE_SIZE * 1.45),
+			Vector2(-8.0, TILE_SIZE * 1.45),
+		])
+		gband.color = Color(0.95, 0.28, 0.36, 0.24)
+		gate.add_child(gband)
+
 		var gvis := Line2D.new()
 		gvis.points = PackedVector2Array([Vector2(0, -TILE_SIZE * 1.45), Vector2(0, TILE_SIZE * 1.45)])
-		gvis.width = 4.0
-		gvis.default_color = Color(lcol.r, lcol.g, lcol.b, 0.72)
+		gvis.width = 5.0
+		gvis.default_color = Color(0.98, 0.38, 0.42, 0.82)
 		gate.add_child(gvis)
 		var gcore := Line2D.new()
 		gcore.points = gvis.points
-		gcore.width = 1.5
-		gcore.default_color = Color(1.0, 0.96, 0.75, 0.85)
+		gcore.width = 2.0
+		gcore.default_color = Color(1.0, 0.94, 0.72, 0.92)
 		gate.add_child(gcore)
+
+		var seal_lbl := Label.new()
+		seal_lbl.text = "⛩️ ผนึก"
+		seal_lbl.position = Vector2(-30.0, -14.0)
+		seal_lbl.add_theme_font_size_override("font_size", 12)
+		seal_lbl.add_theme_color_override("font_color", Color("#fda4af"))
+		seal_lbl.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.08, 0.95))
+		seal_lbl.add_theme_constant_override("outline_size", 3)
+		gate.add_child(seal_lbl)
+
 		world_node.add_child(gate)
 		room_gates.append(gate)
+
+	_init_ambient_motes(use_bamboo, lcol)
 
 	target_reticle = Polygon2D.new()
 	target_reticle.polygon = _make_ellipse(24.0, 11.0, 18)
@@ -408,16 +915,135 @@ func _build_environment():
 	target_reticle.z_index = -5
 	target_reticle.visible = false
 	add_child(target_reticle)
+	_update_active_room_lights()
 
 
-func _add_light(parent: Node2D, color: Color, energy: float, scale_val: float):
+func _init_ambient_motes(use_bamboo: bool, lcol: Color):
+	ambient_motes.clear()
+	if not is_instance_valid(fx_layer):
+		return
+	var leaf_poly := PackedVector2Array([
+		Vector2(-7.0, 0.0), Vector2(-1.5, -2.8), Vector2(7.0, 0.0), Vector2(1.5, 2.8)
+	])
+	var ember_poly := _make_ellipse(3.2, 3.2, 8)
+	for i in range(18):
+		var mote := Polygon2D.new()
+		mote.polygon = leaf_poly if use_bamboo else ember_poly
+		mote.z_index = 4
+		fx_layer.add_child(mote)
+		ambient_motes.append({
+			"node": mote,
+			"seed": float(i) * 1.73,
+			"leaf_poly": leaf_poly,
+			"ember_poly": ember_poly,
+			"use_bamboo": use_bamboo,
+			"lcol": lcol,
+			"rel": Vector2(float((i * 83) % 820) + 70.0, float((i * 59) % 440) + 72.0),
+		})
+	_reposition_ambient_motes_to_room()
+
+
+func _reposition_ambient_motes_to_room():
+	var is_boss := (current_room == _total_rooms() - 1)
+	var base_px := float(current_room * ROOM_STRIDE * TILE_SIZE)
+	var reduced := bool(save_data.get("fx_reduced", false))
+	for idx in range(ambient_motes.size()):
+		var item: Dictionary = ambient_motes[idx]
+		var n: Polygon2D = item.get("node")
+		if not is_instance_valid(n):
+			continue
+		var ember_mode: bool = is_boss or not bool(item.get("use_bamboo", false))
+		n.polygon = item["ember_poly"] if ember_mode else item["leaf_poly"]
+		if ember_mode and chapter == 1:
+			n.color = Color(1.0, 0.56, 0.20, 0.48) if idx % 2 == 0 else Color(1.0, 0.84, 0.34, 0.44)
+		elif bool(item.get("use_bamboo", false)):
+			n.color = Color(0.42, 0.92, 0.68, 0.40) if idx % 3 != 0 else Color(0.74, 0.98, 0.84, 0.30)
+		else:
+			var lc: Color = item["lcol"]
+			n.color = Color(lc.r, lc.g, lc.b, 0.38)
+		n.visible = not (reduced and idx % 2 == 1)
+		var rel: Vector2 = item["rel"]
+		n.position = Vector2(base_px + rel.x, rel.y)
+
+
+func _process_ambient_world(delta: float):
+	var t := run_elapsed_time
+	for sp_item in sway_props:
+		if int(sp_item.get("room", -1)) != current_room:
+			continue
+		var snode: Node2D = sp_item.get("node")
+		if is_instance_valid(snode):
+			var ph := float(sp_item.get("phase", 0.0))
+			var amp := float(sp_item.get("amp", 1.4))
+			snode.rotation = deg_to_rad(sin(t * 1.45 + ph) * amp)
+
+	for mw_item in mist_wisps:
+		if int(mw_item.get("room", -1)) != current_room:
+			continue
+		var mnode: Polygon2D = mw_item.get("node")
+		if is_instance_valid(mnode):
+			var bpos: Vector2 = mw_item.get("base_pos", mnode.position)
+			var mph := float(mw_item.get("phase", 0.0))
+			mnode.position = bpos + Vector2(sin(t * 0.52 + mph) * 22.0, cos(t * 0.38 + mph) * 6.0)
+
+	var is_boss := (current_room == _total_rooms() - 1)
+	var base_px := float(current_room * ROOM_STRIDE * TILE_SIZE)
+	var reduced := bool(save_data.get("fx_reduced", false))
+	for idx in range(ambient_motes.size()):
+		var item: Dictionary = ambient_motes[idx]
+		var n: Polygon2D = item.get("node")
+		if not is_instance_valid(n):
+			continue
+		n.visible = not (reduced and idx % 2 == 1)
+		if not n.visible:
+			continue
+		var sd := float(item.get("seed", 0.0))
+		var ember_mode: bool = is_boss or not bool(item.get("use_bamboo", false))
+		var rel: Vector2 = item["rel"]
+		if ember_mode:
+			rel.x += sin(t * 1.6 + sd) * 14.0 * delta
+			rel.y -= (24.0 + fmod(sd * 7.0, 16.0)) * delta
+			if rel.y < 68.0:
+				rel.y = 500.0
+				rel.x = fmod(rel.x + 137.0, 820.0) + 70.0
+			n.rotation = sin(t * 2.0 + sd) * 0.4
+		else:
+			rel.x += (22.0 + sin(t * 1.1 + sd) * 9.0) * delta
+			rel.y += (16.0 + cos(t * 0.9 + sd) * 5.0) * delta
+			if rel.y > 505.0 or rel.x > 895.0:
+				rel.y = 66.0
+				rel.x = fmod(sd * 97.0 + t * 31.0, 780.0) + 65.0
+			n.rotation = sin(t * 1.8 + sd) * 0.65 + 0.35
+		item["rel"] = rel
+		n.position = Vector2(base_px + rel.x, rel.y)
+		n.modulate.a = (0.55 if reduced else 1.0) * (0.65 + 0.35 * sin(t * 2.2 + sd))
+
+	if is_instance_valid(active_exit_hint):
+		var eh_base: Vector2 = active_exit_hint.get_meta("base_pos", active_exit_hint.position)
+		active_exit_hint.position = eh_base + Vector2(sin(t * 4.2) * 5.5, 0.0)
+
+
+func _add_prop_shadow(parent: Node2D, rx: float, ry: float, y_off: float = 0.0):
+	var sh := Polygon2D.new()
+	sh.polygon = _make_ellipse(rx, ry, 14)
+	sh.color = Color(0.0, 0.0, 0.0, 0.36)
+	sh.position = Vector2(0, y_off)
+	sh.z_index = -1
+	parent.add_child(sh)
+
+
+func _add_light(parent: Node2D, color: Color, energy: float, scale_val: float, room_idx: int = -1):
 	var light := PointLight2D.new()
 	light.texture = light_tex
 	light.color = color
 	light.energy = energy
 	light.texture_scale = scale_val
+	light.shadow_enabled = false
 	light.position = Vector2(0, -18)
 	parent.add_child(light)
+	if room_idx >= 0:
+		light.set_meta("room_idx", room_idx)
+		room_lights.append(light)
 
 
 func _build_player():
@@ -427,15 +1053,25 @@ func _build_player():
 
 	var col := CollisionShape2D.new()
 	var shape := CircleShape2D.new()
-	shape.radius = 18.0
+	shape.radius = 14.0
 	col.shape = shape
 	player.add_child(col)
 
 	var shadow := Polygon2D.new()
 	shadow.polygon = _make_ellipse(22.0, 9.0, 14)
-	shadow.color = Color(0.0, 0.0, 0.0, 0.55)
+	shadow.color = Color(0.0, 0.0, 0.0, 0.58)
 	shadow.z_index = -1
 	player.add_child(shadow)
+	player_shadow = shadow
+
+	var p_rim := Line2D.new()
+	var p_rim_pts := _make_ellipse(23.5, 9.8, 18)
+	p_rim_pts.append(p_rim_pts[0])
+	p_rim.points = p_rim_pts
+	p_rim.width = 1.6
+	p_rim.default_color = Color(0.22, 0.85, 0.96, 0.52)
+	p_rim.z_index = -1
+	player.add_child(p_rim)
 
 	player_sprite = Sprite2D.new()
 	player_sprite.scale = HERO_SCALE
@@ -444,15 +1080,26 @@ func _build_player():
 
 	player_light = PointLight2D.new()
 	player_light.texture = light_tex
-	player_light.energy = 1.35
+	player_light.energy = 0.68
 	player_light.texture_scale = 3.2
 	player_light.position = Vector2(0, -24)
 	player.add_child(player_light)
 
 	camera = Camera2D.new()
-	camera.zoom = Vector2(1.15, 1.15)
+	var vp := get_viewport_rect().size
+	var z := clampf(vp.y / 610.0, 1.18, 1.45)
+	camera.zoom = Vector2(z, z)
 	camera.position_smoothing_enabled = true
-	camera.position_smoothing_speed = 8.0
+	camera.position_smoothing_speed = 7.2
+	camera.drag_horizontal_enabled = true
+	camera.drag_vertical_enabled = true
+	camera.drag_left_margin = 0.05
+	camera.drag_right_margin = 0.05
+	camera.drag_top_margin = 0.03
+	camera.drag_bottom_margin = 0.03
+	camera.limit_left = 0
+	camera.limit_right = dungeon_max_x * TILE_SIZE
+	camera.limit_smoothed = true
 	player.add_child(camera)
 
 
@@ -514,16 +1161,32 @@ func _build_hud():
 	_rebuild_party_hud()
 
 	var top_center := VBoxContainer.new()
-	top_center.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	top_center.position = Vector2(0, 16)
+	top_center_box = top_center
+	top_center.position = Vector2(300, 14)
+	top_center.size = Vector2(560, 96)
+	top_center.add_theme_constant_override("separation", 6)
 	top_center.alignment = BoxContainer.ALIGNMENT_CENTER
 	hud.add_child(top_center)
 
+	room_strip = PanelContainer.new()
+	room_strip.custom_minimum_size = Vector2(540, 30)
+	room_strip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var strip_sb := sb.duplicate()
+	strip_sb.bg_color = Color(0.04, 0.07, 0.12, 0.86)
+	strip_sb.border_color = Color(0.35, 0.55, 0.65, 0.75)
+	strip_sb.set_border_width_all(1)
+	strip_sb.set_content_margin_all(4)
+	room_strip.add_theme_stylebox_override("panel", strip_sb)
+	top_center.add_child(room_strip)
+
 	room_label = Label.new()
 	room_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	room_label.add_theme_font_size_override("font_size", 16)
+	room_label.custom_minimum_size = Vector2(520, 20)
+	room_label.clip_text = true
+	room_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	room_label.add_theme_font_size_override("font_size", 14)
 	room_label.add_theme_color_override("font_color", Color("#99f6e4"))
-	top_center.add_child(room_label)
+	room_strip.add_child(room_label)
 
 	boss_panel = PanelContainer.new()
 	boss_panel.custom_minimum_size = Vector2(460, 42)
@@ -551,26 +1214,54 @@ func _build_hud():
 	bot_center.add_theme_constant_override("separation", 10)
 	hud.add_child(bot_center)
 
-	var p_auto := _make_skill_pill("[F] โจมตี / [C] ออโต้", Color("#e2e8f0"))
+	var p_auto := _make_skill_pill("[F] โจมตี / [C] ออโต้", Color("#e2e8f0"), func():
+		if not _is_modal_open():
+			_touch_attack_queued = true
+			_pulse_skill_pill(skill_auto_pill, true)
+	)
+	skill_auto_pill = p_auto
 	auto_val_lbl = p_auto.find_child("Val", true, false)
+	if auto_val_lbl:
+		auto_val_lbl.mouse_filter = Control.MOUSE_FILTER_STOP
+		auto_val_lbl.gui_input.connect(func(ev: InputEvent):
+			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+				_pulse_skill_pill(skill_auto_pill, true)
+				_toggle_auto_attack()
+		)
 	bot_center.add_child(p_auto)
 
-	var p_q := _make_skill_pill("[Q] สกิล 1", Color("#38bdf8"))
+	var p_q := _make_skill_pill("[Q] สกิล 1", Color("#38bdf8"), func():
+		if not _is_modal_open():
+			_cast_skill_q(_get_auto_aim_dir())
+	)
+	skill_q_pill = p_q
 	q_title_lbl = p_q.find_child("Title", true, false)
 	q_val_lbl = p_q.find_child("Val", true, false)
 	bot_center.add_child(p_q)
 
-	var p_e := _make_skill_pill("[E] สกิล 2", Color("#a855f7"))
+	var p_e := _make_skill_pill("[E] สกิล 2", Color("#a855f7"), func():
+		if not _is_modal_open():
+			_cast_skill_e()
+	)
+	skill_e_pill = p_e
 	e_title_lbl = p_e.find_child("Title", true, false)
 	e_val_lbl = p_e.find_child("Val", true, false)
 	bot_center.add_child(p_e)
 
-	var p_r := _make_skill_pill("[R] ท่าไม้ตาย!", Color("#facc15"))
+	var p_r := _make_skill_pill("[R] ท่าไม้ตาย!", Color("#facc15"), func():
+		if not _is_modal_open():
+			_cast_skill_r()
+	)
+	skill_r_pill = p_r
 	r_title_lbl = p_r.find_child("Title", true, false)
 	r_val_lbl = p_r.find_child("Val", true, false)
 	bot_center.add_child(p_r)
 
-	var p_dash := _make_skill_pill("[Space] วิชาตัวเบา", Color("#2dd4bf"))
+	var p_dash := _make_skill_pill("[Space/Shift] วิชาตัวเบา", Color("#2dd4bf"), func():
+		if not _is_modal_open():
+			_touch_dash_queued = true
+	)
+	skill_dash_pill = p_dash
 	dash_val_lbl = p_dash.find_child("Val", true, false)
 	bot_center.add_child(p_dash)
 
@@ -589,12 +1280,13 @@ func _build_hud():
 	banner_panel.add_child(banner_label)
 
 	var top_right := VBoxContainer.new()
+	top_right_panel = top_right
 	top_right.anchor_left = 1.0
 	top_right.anchor_right = 1.0
-	top_right.offset_left = -412.0
+	top_right.offset_left = -286.0
 	top_right.offset_right = -16.0
 	top_right.offset_top = 16.0
-	top_right.offset_bottom = 260.0
+	top_right.offset_bottom = 340.0
 	top_right.add_theme_constant_override("separation", 6)
 	hud.add_child(top_right)
 
@@ -611,41 +1303,79 @@ func _build_hud():
 	minimap_ctrl.draw.connect(_draw_minimap)
 	mm_vb.add_child(minimap_ctrl)
 
+	var jade_row := HBoxContainer.new()
+	jade_row.add_theme_constant_override("separation", 8)
+	mm_vb.add_child(jade_row)
+
 	jade_label = Label.new()
+	jade_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	jade_label.add_theme_font_size_override("font_size", 13)
 	jade_label.add_theme_color_override("font_color", Color("#5eead4"))
-	mm_vb.add_child(jade_label)
+	jade_row.add_child(jade_label)
 
-	var btn_row := HBoxContainer.new()
-	btn_row.add_theme_constant_override("separation", 6)
+	menu_toggle_btn = Button.new()
+	menu_toggle_btn.text = "▼ เมนู [M]"
+	menu_toggle_btn.custom_minimum_size = Vector2(96, 30)
+	menu_toggle_btn.add_theme_font_size_override("font_size", 12)
+	_style_hud_btn(menu_toggle_btn, Color("#d6ad4f"), Color("#fde047"))
+	menu_toggle_btn.pressed.connect(_toggle_hud_menu)
+	jade_row.add_child(menu_toggle_btn)
+
+	var btn_row := GridContainer.new()
+	top_right_btn_grid = btn_row
+	btn_row.columns = 3
+	btn_row.add_theme_constant_override("h_separation", 6)
+	btn_row.add_theme_constant_override("v_separation", 6)
 	mm_vb.add_child(btn_row)
 
 	diff_btn = Button.new()
-	diff_btn.custom_minimum_size = Vector2(106, 26)
-	diff_btn.add_theme_font_size_override("font_size", 11)
+	diff_btn.custom_minimum_size = Vector2(118, 42)
+	diff_btn.add_theme_font_size_override("font_size", 13)
+	_style_hud_btn(diff_btn, Color("#64748b"), Color("#f8fafc"))
 	diff_btn.pressed.connect(_toggle_difficulty)
 	btn_row.add_child(diff_btn)
 
 	var upg_btn := Button.new()
 	upg_btn.text = "📜 คัมภีร์ [U]"
-	upg_btn.custom_minimum_size = Vector2(92, 26)
-	upg_btn.add_theme_font_size_override("font_size", 11)
+	upg_btn.custom_minimum_size = Vector2(118, 42)
+	upg_btn.add_theme_font_size_override("font_size", 13)
+	_style_hud_btn(upg_btn, Color("#38bdf8"), Color("#f8fafc"))
 	upg_btn.pressed.connect(_toggle_upgrade_modal)
 	btn_row.add_child(upg_btn)
 
 	var help_btn := Button.new()
 	help_btn.text = "❓ คู่มือ [H]"
-	help_btn.custom_minimum_size = Vector2(82, 26)
-	help_btn.add_theme_font_size_override("font_size", 11)
+	help_btn.custom_minimum_size = Vector2(118, 42)
+	help_btn.add_theme_font_size_override("font_size", 13)
+	_style_hud_btn(help_btn, Color("#64748b"), Color("#f8fafc"))
 	help_btn.pressed.connect(_toggle_help_overlay)
 	btn_row.add_child(help_btn)
 
 	touch_btn = Button.new()
 	touch_btn.text = "📱 ทัช"
-	touch_btn.custom_minimum_size = Vector2(68, 26)
-	touch_btn.add_theme_font_size_override("font_size", 11)
+	touch_btn.custom_minimum_size = Vector2(118, 42)
+	touch_btn.add_theme_font_size_override("font_size", 13)
+	_style_hud_btn(touch_btn, Color("#2dd4bf"), Color("#f8fafc"))
 	touch_btn.pressed.connect(func(): _set_touch_mode(not mobile_controls.visible))
 	btn_row.add_child(touch_btn)
+
+	speed_btn = Button.new()
+	speed_btn.text = "⏩ 1.0×"
+	speed_btn.custom_minimum_size = Vector2(118, 42)
+	speed_btn.add_theme_font_size_override("font_size", 13)
+	_style_hud_btn(speed_btn, Color("#fbbf24"), Color("#f8fafc"))
+	speed_btn.pressed.connect(_toggle_game_speed)
+	btn_row.add_child(speed_btn)
+
+	status_btn = Button.new()
+	status_btn.text = "👤 สถานะ [K]"
+	status_btn.custom_minimum_size = Vector2(118, 42)
+	status_btn.add_theme_font_size_override("font_size", 13)
+	_style_hud_btn(status_btn, Color("#a855f7"), Color("#f8fafc"))
+	status_btn.pressed.connect(_toggle_character_status_modal)
+	btn_row.add_child(status_btn)
+	save_data["hud_menu_expanded"] = false
+	_apply_hud_menu_state()
 
 	var combo_sb := StyleBoxFlat.new()
 	combo_sb.bg_color = Color(0.05, 0.07, 0.11, 0.78)
@@ -723,40 +1453,66 @@ func _build_hud():
 		if not _is_modal_open():
 			_cast_skill_r()
 	)
-	mobile_controls.auto_toggled.connect(func():
-		auto_attack_enabled = not auto_attack_enabled
-		_show_banner("โหมดตีอัตโนมัติ: %s" % ("เปิด (ON)" if auto_attack_enabled else "ปิด (OFF)"), 1.2)
-		_refresh_hud()
-	)
+	mobile_controls.auto_toggled.connect(_toggle_auto_attack)
+	mobile_controls.speed_toggled.connect(_toggle_game_speed)
 	mobile_controls.codex_pressed.connect(_toggle_upgrade_modal)
 
 	end_overlay = ColorRect.new()
-	end_overlay.color = Color(0.03, 0.04, 0.06, 0.82)
+	end_overlay.color = Color(0.03, 0.04, 0.06, 0.86)
 	end_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	end_overlay.visible = false
 	hud.add_child(end_overlay)
 
+	var end_panel := PanelContainer.new()
+	end_panel.set_anchors_preset(Control.PRESET_CENTER)
+	end_panel.position = Vector2(-280, -220)
+	end_panel.custom_minimum_size = Vector2(560, 440)
+	end_panel.add_theme_stylebox_override("panel", sb)
+	end_overlay.add_child(end_panel)
+
 	var end_box := VBoxContainer.new()
-	end_box.set_anchors_preset(Control.PRESET_CENTER)
-	end_box.position = Vector2(-210, -80)
-	end_box.custom_minimum_size = Vector2(420, 160)
-	end_box.add_theme_constant_override("separation", 14)
-	end_overlay.add_child(end_box)
+	end_box.add_theme_constant_override("separation", 10)
+	end_panel.add_child(end_box)
 
 	end_title = Label.new()
 	end_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	end_title.add_theme_font_size_override("font_size", 26)
+	end_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	end_title.add_theme_font_size_override("font_size", 20)
 	end_box.add_child(end_title)
+
+	end_summary_box = VBoxContainer.new()
+	end_summary_box.add_theme_constant_override("separation", 6)
+	end_summary_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	end_box.add_child(end_summary_box)
 
 	restart_btn = Button.new()
 	restart_btn.text = "🔄 เล่นใหม่อีกครั้ง [Enter]"
-	restart_btn.custom_minimum_size = Vector2(280, 46)
+	restart_btn.custom_minimum_size = Vector2(340, 42)
 	restart_btn.pressed.connect(_on_end_action_pressed)
 	end_box.add_child(restart_btn)
 
+	var end_sub_row := HBoxContainer.new()
+	end_sub_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	end_sub_row.add_theme_constant_override("separation", 8)
+	end_box.add_child(end_sub_row)
+
+	replay_btn = Button.new()
+	replay_btn.name = "ReplayChapterBtn"
+	replay_btn.text = "🔄 เล่นซ้ำ"
+	replay_btn.custom_minimum_size = Vector2(166, 38)
+	replay_btn.pressed.connect(_replay_current_chapter)
+	end_sub_row.add_child(replay_btn)
+
+	home_btn = Button.new()
+	home_btn.name = "ReturnHomeBtn"
+	home_btn.text = "🏠 กลับหน้าหลัก"
+	home_btn.custom_minimum_size = Vector2(166, 38)
+	home_btn.pressed.connect(_return_to_hub)
+	end_sub_row.add_child(home_btn)
+
 	end_upgrade_btn = Button.new()
 	end_upgrade_btn.text = "📜 เปิดหอคัมภีร์อัปเกรด [U]"
-	end_upgrade_btn.custom_minimum_size = Vector2(280, 40)
+	end_upgrade_btn.custom_minimum_size = Vector2(340, 36)
 	end_upgrade_btn.pressed.connect(_toggle_upgrade_modal)
 	end_box.add_child(end_upgrade_btn)
 
@@ -767,7 +1523,10 @@ func _build_hud():
 		"boss_rush": _start_boss_rush,
 		"toggle": _toggle_upgrade_modal,
 		"toggle_cutin": _toggle_cutin,
+		"toggle_fx_reduced": _toggle_fx_reduced,
+		"toggle_shake_mode": _toggle_shake_mode,
 		"toggle_bgm": _toggle_bgm,
+		"toggle_touch_mirror": _toggle_touch_mirror,
 		"export_save": _export_save_code,
 		"import_save": _import_save_code,
 	})
@@ -781,16 +1540,31 @@ func _build_hud():
 	codex_chapters_box = codex_refs["chapters_box"]
 	codex_gear_scroll = codex_refs.get("gear_scroll")
 	codex_gear_box = codex_refs.get("gear_box")
+	codex_ach_scroll = codex_refs.get("ach_scroll")
+	codex_ach_box = codex_refs.get("ach_box")
+	codex_char_scroll = codex_refs.get("char_scroll")
+	codex_char_box = codex_refs.get("char_box")
 	codex_chapter_btns = codex_refs["chapter_btns"]
 	codex_cutin_btn = codex_refs["cutin_btn"]
+	codex_fx_btn = codex_refs.get("fx_btn")
+	codex_shake_btn = codex_refs.get("shake_btn")
 	codex_bgm_btn = codex_refs.get("bgm_btn")
+	codex_mirror_btn = codex_refs.get("mirror_btn")
 	codex_save_input = codex_refs.get("save_code_input")
 	_refresh_bgm_btn()
 	_refresh_cutin_btn()
+	_refresh_fx_and_shake_btns()
+	_refresh_mirror_btn()
+	if mobile_controls and mobile_controls.has_method("set_mirrored"):
+		mobile_controls.set_mirrored(bool(save_data.get("touch_mirror", false)))
 	_set_codex_tab(0)
 
 	help_overlay = CodexUI.build_help_overlay(hud, sb, _toggle_help_overlay, {"open_party": _open_codex_tab.bind(1), "open_chapters": _open_codex_tab.bind(2)})
-	help_overlay.visible = (DisplayServer.get_name() != "headless") and not bool(Globals.get_meta("skip_intro", false)) and not boss_rush_mode
+	help_overlay.visible = false
+
+	_build_toast_and_tutorial_hud(hud, sb)
+	if (DisplayServer.get_name() != "headless") and not bool(save_data.get("tutorial_completed", false)) and chapter == 1 and current_room == 0 and not boss_rush_mode:
+		_start_interactive_tutorial()
 
 	var boon_refs := CodexUI.build_boon_overlay(hud, sb, _pick_boon)
 	boon_overlay = boon_refs["overlay"]
@@ -821,10 +1595,71 @@ func _set_touch_mode(enabled: bool):
 
 
 func _on_viewport_resized():
-	if mobile_controls and get_viewport():
-		var vr := get_viewport().get_visible_rect().size
-		if vr.x > 1.0 and vr.y > 1.0:
-			mobile_controls.layout_for_viewport(vr)
+	var vr := Vector2(1280.0, 720.0)
+	if get_viewport():
+		var rect_sz := get_viewport().get_visible_rect().size
+		if rect_sz.x > 1.0 and rect_sz.y > 1.0:
+			vr = rect_sz
+	if mobile_controls:
+		mobile_controls.layout_for_viewport(vr)
+	if is_instance_valid(camera):
+		var z := clampf(vr.y / 610.0, 1.18, 1.45)
+		camera.zoom = Vector2(z, z)
+	_layout_landscape_center_hud(vr)
+
+
+func _layout_landscape_center_hud(vr: Vector2):
+	var expanded := bool(save_data.get("hud_menu_expanded", false))
+	var right_w := 402.0 if expanded else 286.0
+	var left_bound := 296.0
+	var right_bound := vr.x - right_w - 16.0
+	var avail_w := maxf(320.0, right_bound - left_bound)
+	var center_x := left_bound + avail_w * 0.5
+	if top_center_box:
+		top_center_box.position = Vector2(left_bound, 14.0)
+		top_center_box.size = Vector2(avail_w, 96.0)
+	if room_strip:
+		var rw := minf(avail_w - 8.0, 560.0)
+		room_strip.custom_minimum_size = Vector2(rw, 30.0)
+	if room_label:
+		room_label.custom_minimum_size = Vector2(minf(avail_w - 24.0, 540.0), 20.0)
+	if boss_panel:
+		boss_panel.custom_minimum_size = Vector2(minf(avail_w - 16.0, 460.0), 42.0)
+	if bot_center_row:
+		bot_center_row.anchor_left = 0.0
+		bot_center_row.anchor_right = 0.0
+		bot_center_row.anchor_top = 0.0
+		bot_center_row.anchor_bottom = 0.0
+		bot_center_row.position = Vector2(0.0, vr.y - 82.0)
+		bot_center_row.size = Vector2(vr.x, 60.0)
+	if tutorial_panel:
+		var tw := minf(avail_w - 12.0, 520.0)
+		tutorial_panel.position = Vector2(center_x - tw * 0.5, 114.0 if (not boss_panel or not boss_panel.visible) else 132.0)
+		tutorial_panel.size = Vector2(tw, 52.0)
+		tutorial_panel.custom_minimum_size = Vector2(tw, 52.0)
+
+
+func _style_hud_btn(b: Button, border_col: Color, font_col: Color):
+	var n := StyleBoxFlat.new()
+	n.bg_color = Color(0.08, 0.12, 0.19, 0.96)
+	n.border_color = border_col
+	n.set_border_width_all(1)
+	n.set_corner_radius_all(6)
+	n.content_margin_left = 6
+	n.content_margin_right = 6
+	n.content_margin_top = 4
+	n.content_margin_bottom = 4
+	var h := n.duplicate()
+	h.bg_color = Color(0.13, 0.19, 0.29, 0.98)
+	h.border_color = border_col.lightened(0.25)
+	var p := n.duplicate()
+	p.bg_color = Color(0.18, 0.25, 0.36, 1.0)
+	b.add_theme_stylebox_override("normal", n)
+	b.add_theme_stylebox_override("hover", h)
+	b.add_theme_stylebox_override("pressed", p)
+	b.add_theme_color_override("font_color", font_col)
+	b.add_theme_color_override("font_hover_color", Color("#fde047"))
+	b.focus_mode = Control.FOCUS_NONE
 
 
 func _is_modal_open() -> bool:
@@ -851,17 +1686,20 @@ func _make_bar(fill_color: Color, w: int, h: int) -> ProgressBar:
 	return bar
 
 
-func _make_skill_pill(title: String, col: Color) -> PanelContainer:
+func _make_skill_pill(title: String, col: Color, on_click: Callable = Callable()) -> PanelContainer:
 	var p := PanelContainer.new()
-	p.custom_minimum_size = Vector2(142, 54)
+	p.custom_minimum_size = Vector2(148, 54)
+	p.mouse_filter = Control.MOUSE_FILTER_STOP
+	p.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.05, 0.08, 0.12, 0.90)
+	sb.bg_color = Color(0.05, 0.08, 0.12, 0.92)
 	sb.border_color = col
 	sb.set_border_width_all(2)
 	sb.set_corner_radius_all(8)
 	sb.set_content_margin_all(6)
 	p.add_theme_stylebox_override("panel", sb)
 	var hb := VBoxContainer.new()
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(hb)
 	var l1 := Label.new()
 	l1.name = "Title"
@@ -869,6 +1707,7 @@ func _make_skill_pill(title: String, col: Color) -> PanelContainer:
 	l1.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l1.add_theme_font_size_override("font_size", 12)
 	l1.add_theme_color_override("font_color", col)
+	l1.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_child(l1)
 	var l2 := Label.new()
 	l2.name = "Val"
@@ -876,8 +1715,31 @@ func _make_skill_pill(title: String, col: Color) -> PanelContainer:
 	l2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l2.add_theme_font_size_override("font_size", 11)
 	l2.add_theme_color_override("font_color", Color("#94a3b8"))
+	l2.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_child(l2)
+	if on_click.is_valid():
+		p.gui_input.connect(func(ev: InputEvent):
+			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+				on_click.call()
+		)
 	return p
+
+
+func _pulse_skill_pill(pill: Control, success: bool = true):
+	if not is_instance_valid(pill):
+		return
+	pill.pivot_offset = pill.size * 0.5
+	pill.scale = Vector2(0.92, 0.92) if success else Vector2(1.06, 0.94)
+	pill.modulate = Color(1.45, 1.45, 1.45, 1.0) if success else Color(1.5, 0.55, 0.55, 1.0)
+	var tw := pill.create_tween()
+	tw.tween_property(pill, "scale", Vector2.ONE, 0.14).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(pill, "modulate", Color.WHITE, 0.16)
+
+
+func _reject_skill_feedback(pill: Control, reason: String):
+	_pulse_skill_pill(pill, false)
+	if is_instance_valid(player):
+		_spawn_floating_text(player.global_position + Vector2(0, -72), reason, Color("#f87171"), false)
 
 
 func _switch_hero(hid: String, with_vfx: bool):
@@ -889,7 +1751,12 @@ func _switch_hero(hid: String, with_vfx: bool):
 	active_hero_id = hid
 	var data: Dictionary = HeroData.HEROES[hid]
 	player_light.color = data["color"]
-	player_sprite.texture = _get_hero_tex(hid, "stride_0")
+	attack_timer = 0.0
+	pose_override_timer = 0.0
+	if _has_4dir_sheet(hid):
+		_set_player_strip(_get_hero_tex(hid, walk_dir_key), 3, 0)
+	else:
+		_set_player_strip(_get_hero_tex(hid, "stride_0"), 1, 0)
 	if with_vfx:
 		invuln_timer = maxf(invuln_timer, 0.35)
 		sfx.play_sfx("switch")
@@ -933,10 +1800,20 @@ func _trigger_switch_in_skill(hid: String):
 
 func _warp_to_room(room_idx: int):
 	upgrade_overlay.visible = false
+	if mobile_controls and mobile_controls.has_method("reset_joystick"):
+		mobile_controls.reset_joystick()
+	if room_idx > 0 and tutorial_step > 0:
+		_complete_interactive_tutorial()
 	for e in enemies.duplicate():
 		if is_instance_valid(e):
 			e.queue_free()
 	enemies.clear()
+	_clear_all_telegraphs()
+	_clear_exit_hint()
+	for dc in dying_corpses.duplicate():
+		if typeof(dc) == TYPE_DICTIONARY and is_instance_valid(dc.get("node")):
+			(dc["node"] as Node).queue_free()
+	dying_corpses.clear()
 	for ob in orbit_blades.duplicate():
 		if is_instance_valid(ob):
 			ob.queue_free()
@@ -948,7 +1825,14 @@ func _warp_to_room(room_idx: int):
 
 
 func _spawn_room_wave(room_idx: int):
+	_clear_exit_hint()
+	if mobile_controls and mobile_controls.has_method("reset_joystick"):
+		mobile_controls.reset_joystick()
 	current_room = clampi(room_idx, 0, _total_rooms() - 1)
+	if boss_panel:
+		boss_panel.visible = false
+	_update_active_room_lights()
+	_reposition_ambient_motes_to_room()
 	if sfx and sfx.has_method("set_bgm_mode"):
 		sfx.set_bgm_mode(current_room == 4 or current_room == 9 or boss_rush_mode)
 	if minimap_ctrl:
@@ -961,9 +1845,15 @@ func _spawn_room_wave(room_idx: int):
 
 	if current_room in [0, 1, 2, 3]:
 		room_label.text = "ชั้นที่ %d/100 — บทที่ %d: %s · %s (%d/10) [%s]" % [floor_no, chapter, ch_title, zone_name, current_room + 1, cdata["mob_a"]]
-		_spawn_enemy("puppet" if chapter in [2, 6, 7] else "cultist", Vector2(bx + 9.0, 2.8) * TILE_SIZE)
-		_spawn_enemy("hound", Vector2(bx + 10.2, 6.0) * TILE_SIZE)
-		_spawn_enemy("cultist" if current_room % 2 == 0 else "golem", Vector2(bx + 11.4, 4.5) * TILE_SIZE)
+		if chapter == 1 and current_room == 0 and not boss_rush_mode:
+			_spawn_enemy("cultist", Vector2(bx + 9.4, 4.5) * TILE_SIZE)
+			if enemies.size() > 0 and is_instance_valid(enemies[0]):
+				enemies[0].set_meta("hp", 150.0)
+				enemies[0].set_meta("max_hp", 150.0)
+		else:
+			_spawn_enemy("puppet" if chapter in [2, 6, 7] else "cultist", Vector2(bx + 9.0, 2.8) * TILE_SIZE)
+			_spawn_enemy("hound", Vector2(bx + 10.2, 6.0) * TILE_SIZE)
+			_spawn_enemy("cultist" if current_room % 2 == 0 else "golem", Vector2(bx + 11.4, 4.5) * TILE_SIZE)
 		if current_room == 0:
 			_show_banner("⚔️ บทที่ %d: %s — %s" % [chapter, ch_title, cdata["hazard_desc"]], 2.6)
 	elif current_room == 4 or current_room == 8:
@@ -975,6 +1865,7 @@ func _spawn_room_wave(room_idx: int):
 		var mb_sc := float(cdata["miniboss_scale"])
 		mb_sp.scale = Vector2(mb_sc, mb_sc)
 		mb_sp.offset = Vector2(0, -mb_sp.texture.get_height() * 0.42) if mb_sp.texture else Vector2.ZERO
+		mb.set_meta("base_offset_y", mb_sp.offset.y)
 		mb.set_meta("custom_tint", cdata["miniboss_tint"])
 		mb_sp.modulate = cdata["miniboss_tint"]
 		var mb_lbl := Label.new()
@@ -1011,10 +1902,26 @@ func _spawn_room_wave(room_idx: int):
 		boss_e.set_meta("hp", bhp)
 		boss_e.set_meta("max_hp", bhp)
 		var b_sp: Sprite2D = boss_e.get_node("Sprite")
-		b_sp.texture = load(str(cdata["boss_tex"]))
-		var b_sc := float(cdata["boss_scale"])
-		b_sp.scale = Vector2(b_sc, b_sc)
-		b_sp.offset = Vector2(0, -b_sp.texture.get_height() * 0.42) if b_sp.texture else Vector2.ZERO
+		if chapter == 1 and boss_ch1_sheet_tex != null:
+			b_sp.texture = boss_ch1_sheet_tex
+			b_sp.hframes = 10
+			b_sp.vframes = 1
+			b_sp.frame = 0
+			boss_e.set_meta("sheet_type", "boss_ch1_10f")
+			var b_sc := float(cdata["boss_scale"])
+			b_sp.scale = Vector2(b_sc, b_sc)
+			b_sp.offset = Vector2(0.0, -151.0)
+		else:
+			b_sp.texture = load(str(cdata["boss_tex"]))
+			b_sp.hframes = 1
+			b_sp.vframes = 1
+			b_sp.frame = 0
+			boss_e.set_meta("sheet_type", "")
+			var b_sc := float(cdata["boss_scale"])
+			b_sp.scale = Vector2(b_sc, b_sc)
+			b_sp.offset = Vector2(0, -b_sp.texture.get_height() * 0.42) if b_sp.texture else Vector2.ZERO
+		boss_e.set_meta("base_scale", b_sp.scale)
+		boss_e.set_meta("base_offset_y", b_sp.offset.y)
 		boss_e.set_meta("custom_tint", cdata["boss_tint"])
 		b_sp.modulate = cdata["boss_tint"]
 		var b_aura := Line2D.new()
@@ -1058,6 +1965,19 @@ func _spawn_enemy(kind: String, pos: Vector2):
 	e.set_meta("kb", Vector2.ZERO)
 	e.set_meta("trap_cd", 0.0)
 	e.set_meta("qi_mark", "")
+	e.set_meta("windup_timer", 0.0)
+	e.set_meta("attack_pose_timer", 0.0)
+	e.set_meta("recovery_timer", 0.0)
+	e.set_meta("hurt_timer", 0.0)
+	e.set_meta("vuln_open", 0.0)
+	e.set_meta("ai_state", "idle")
+	e.set_meta("walk_dist", 0.0)
+	e.set_meta("walk_idx", 0)
+	e.set_meta("attack_dir", Vector2.LEFT)
+	e.set_meta("cast_pose", "slam")
+	e.set_meta("is_dead", false)
+	var compass_slots := [0.0, 1.15, -1.15, 2.35, -2.35, 0.58, -0.58]
+	e.set_meta("surround_angle", float(compass_slots[enemies.size() % compass_slots.size()]))
 	e.set_meta("shield", float(def.get("shield", 0.0)) * mult)
 	e.set_meta("max_shield", float(def.get("shield", 0.0)) * mult)
 
@@ -1068,6 +1988,7 @@ func _spawn_enemy(kind: String, pos: Vector2):
 	e.add_child(col)
 
 	var shadow := Polygon2D.new()
+	shadow.name = "Shadow"
 	var s_rx := 34.0 if def["is_boss"] else 20.0
 	shadow.polygon = _make_ellipse(s_rx, s_rx * 0.42, 12)
 	shadow.color = Color(0, 0, 0, 0.58)
@@ -1083,12 +2004,24 @@ func _spawn_enemy(kind: String, pos: Vector2):
 
 	var sp := Sprite2D.new()
 	sp.name = "Sprite"
-	sp.texture = load(def["tex"])
 	var sc: float = def["scale"]
 	sp.scale = Vector2(sc, sc)
 	var base_tint: Color = def.get("tint", Color.WHITE)
 	sp.modulate = Color(1.18, 1.14, 1.14, 1.0) if base_tint == Color.WHITE else base_tint
-	sp.offset = Vector2(0, -sp.texture.get_height() * 0.42) if sp.texture else Vector2.ZERO
+	if kind == "cultist" and cultist_sheet_tex != null:
+		sp.texture = cultist_sheet_tex
+		sp.hframes = 8
+		sp.vframes = 1
+		sp.frame = 0
+		sp.offset = Vector2(0.0, -72.0)
+		e.set_meta("sheet_type", "cultist_8f")
+	else:
+		sp.texture = load(def["tex"])
+		sp.offset = Vector2(0, -sp.texture.get_height() * 0.42) if sp.texture else Vector2.ZERO
+		e.set_meta("sheet_type", "")
+	e.set_meta("base_scale", sp.scale)
+	e.set_meta("base_offset_y", sp.offset.y)
+	e.set_meta("z_height", 0.0)
 	e.add_child(sp)
 
 	if not def["is_boss"]:
@@ -1146,14 +2079,102 @@ func _spawn_enemy(kind: String, pos: Vector2):
 	mark_lbl.add_theme_constant_override("outline_size", 3)
 	e.add_child(mark_lbl)
 
+	var wind_ring := Line2D.new()
+	wind_ring.name = "WindupRing"
+	var wr_rx := float(def.get("range", 58.0)) * 0.85
+	var wr_pts := _make_ellipse(wr_rx, wr_rx * 0.52, 24)
+	wr_pts.append(wr_pts[0])
+	wind_ring.points = wr_pts
+	wind_ring.width = 3.0
+	wind_ring.default_color = Color(0.98, 0.20, 0.20, 0.92)
+	wind_ring.z_index = -1
+	wind_ring.visible = false
+	e.add_child(wind_ring)
+
+	var wind_lbl := Label.new()
+	wind_lbl.name = "WindupLabel"
+	wind_lbl.text = "⚠️ โจมตี!"
+	wind_lbl.position = Vector2(-36, -122)
+	wind_lbl.custom_minimum_size = Vector2(72, 22)
+	wind_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	wind_lbl.add_theme_font_size_override("font_size", 13)
+	wind_lbl.add_theme_color_override("font_color", Color("#fef08a"))
+	wind_lbl.add_theme_color_override("font_outline_color", Color("#dc2626"))
+	wind_lbl.add_theme_constant_override("outline_size", 4)
+	wind_lbl.visible = false
+	e.add_child(wind_lbl)
+
+	# Directional slash sector telegraph so player sees exact melee swing direction & reach
+	var cone := Polygon2D.new()
+	cone.name = "SlashCone"
+	var cr := float(def.get("range", 72.0)) + 10.0
+	var cpts := PackedVector2Array([Vector2.ZERO])
+	for ci in range(11):
+		var a := lerpf(-0.62, 0.62, float(ci) / 10.0)
+		cpts.append(Vector2(cos(a) * cr, sin(a) * cr * 0.72))
+	cone.polygon = cpts
+	cone.color = Color(0.98, 0.20, 0.24, 0.30)
+	cone.z_index = -1
+	cone.visible = false
+	e.add_child(cone)
+
+	var open_lbl := Label.new()
+	open_lbl.name = "VulnOpenLabel"
+	open_lbl.text = "⚡ ช่องว่าง!"
+	open_lbl.position = Vector2(-52, -148 if def["is_boss"] else -118)
+	open_lbl.custom_minimum_size = Vector2(104, 22)
+	open_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	open_lbl.add_theme_font_size_override("font_size", 13)
+	open_lbl.add_theme_color_override("font_color", Color("#5eead4"))
+	open_lbl.add_theme_color_override("font_outline_color", Color("#0f172a"))
+	open_lbl.add_theme_constant_override("outline_size", 4)
+	open_lbl.visible = false
+	e.add_child(open_lbl)
+
 	world_node.add_child(e)
 	enemies.append(e)
+
+
+func _set_enemy_sheet_pose(e: CharacterBody2D, sp: Sprite2D, state_name: String, walk_idx: int = 0, cast_pose: String = "slam"):
+	var stype := str(e.get_meta("sheet_type", ""))
+	if stype == "cultist_8f":
+		match state_name:
+			"idle":
+				sp.frame = 0
+			"move":
+				sp.frame = 1 if (walk_idx % 2 == 0) else 2
+			"windup":
+				sp.frame = 3
+			"attack":
+				sp.frame = 4
+			"recovery":
+				sp.frame = 5
+			"hurt":
+				sp.frame = 6
+			"death":
+				sp.frame = 7
+	elif stype == "boss_ch1_10f":
+		match state_name:
+			"idle":
+				sp.frame = 0
+			"move":
+				sp.frame = 1 if (walk_idx % 2 == 0) else 2
+			"windup":
+				sp.frame = 5 if cast_pose == "wave" else 3
+			"attack":
+				sp.frame = 6 if cast_pose == "wave" else 4
+			"recovery":
+				sp.frame = 7
+			"hurt":
+				sp.frame = 8
+			"death":
+				sp.frame = 9
 
 
 func _get_nearest_enemy(max_dist: float = 540.0) -> CharacterBody2D:
 	var best: CharacterBody2D = null
 	var best_d := max_dist
-	for e in enemies:
+	for e in enemies.duplicate():
 		if not is_instance_valid(e):
 			continue
 		var d: float = e.global_position.distance_to(player.global_position)
@@ -1171,11 +2192,30 @@ func _get_auto_aim_dir() -> Vector2:
 
 
 func _process(delta: float):
+	var modal_open := _is_modal_open()
 	if mobile_controls:
-		mobile_controls.set_active(not _is_modal_open())
+		mobile_controls.set_active(not modal_open)
+	if tutorial_panel:
+		tutorial_panel.visible = (tutorial_step > 0 and not modal_open)
+	if tutorial_arrow_lbl:
+		tutorial_arrow_lbl.visible = (tutorial_step > 0 and not modal_open)
 	if game_over or victory:
-		if Input.is_key_pressed(KEY_ENTER):
+		if _is_cutin_fullscreen():
+			cutin_overlay.skip()
+		Engine.time_scale = 1.0
+		var real_dt := delta / maxf(Engine.time_scale, 0.05)
+		if end_input_guard_timer > 0.0:
+			end_input_guard_timer = maxf(0.0, end_input_guard_timer - real_dt)
+			if end_input_guard_timer <= 0.0 and restart_btn:
+				restart_btn.disabled = false
+			_prev_enter_end = Input.is_key_pressed(KEY_ENTER) or Input.is_key_pressed(KEY_KP_ENTER)
+			return
+		# Require a clean Enter press (never Space/Dash or Q/E/R skill keys!) after guard expires
+		var ent_now := Input.is_key_pressed(KEY_ENTER) or Input.is_key_pressed(KEY_KP_ENTER)
+		if ent_now and not _prev_enter_end:
+			_prev_enter_end = ent_now
 			_on_end_action_pressed()
+		_prev_enter_end = ent_now
 		return
 
 	var kh := Input.is_key_pressed(KEY_H)
@@ -1183,11 +2223,15 @@ func _process(delta: float):
 		_toggle_help_overlay()
 	_prev_h = kh
 	if help_overlay and help_overlay.visible:
+		Engine.time_scale = 1.0
 		if Input.is_key_pressed(KEY_ENTER) or Input.is_key_pressed(KEY_ESCAPE):
 			help_overlay.visible = false
 		return
 
 	if boon_overlay and boon_overlay.visible:
+		if _is_cutin_fullscreen():
+			cutin_overlay.skip()
+		Engine.time_scale = 1.0
 		if Input.is_key_pressed(KEY_1):
 			_pick_boon(0)
 		elif Input.is_key_pressed(KEY_2):
@@ -1208,8 +2252,24 @@ func _process(delta: float):
 	if ku and not _prev_u:
 		_toggle_upgrade_modal()
 	_prev_u = ku
+	var kk := Input.is_key_pressed(KEY_K)
+	if kk and not _prev_k:
+		_toggle_character_status_modal()
+	_prev_k = kk
+	var km := Input.is_key_pressed(KEY_M)
+	if km and not _prev_m:
+		_toggle_hud_menu()
+	_prev_m = km
+	var kesc := Input.is_key_pressed(KEY_ESCAPE)
+	if kesc and not _prev_esc and upgrade_overlay and upgrade_overlay.visible:
+		_toggle_upgrade_modal()
+	_prev_esc = kesc
 	if upgrade_overlay and upgrade_overlay.visible:
+		Engine.time_scale = 1.0
 		return
+
+	if is_instance_valid(parallax_mist_layer):
+		parallax_mist_layer.motion_offset.x += delta * 14.0
 
 	var real_delta := delta / maxf(Engine.time_scale, 0.05)
 	combat.tick(real_delta)
@@ -1219,6 +2279,8 @@ func _process(delta: float):
 	var desired_scale: float = combat.get_desired_time_scale(hitstop_timer)
 	if hitstop_timer <= 0.0 and cutin_overlay and cutin_overlay.is_playing():
 		desired_scale = minf(desired_scale, cutin_overlay.get_slowmo_scale())
+	elif hitstop_timer <= 0.0 and desired_scale >= 0.99:
+		desired_scale = game_speed_mult
 
 	if hitstop_timer > 0.0:
 		hitstop_timer = maxf(0.0, hitstop_timer - real_delta)
@@ -1234,6 +2296,18 @@ func _process(delta: float):
 	dash_cooldown = maxf(0.0, dash_cooldown - delta)
 	invuln_timer = maxf(0.0, invuln_timer - delta)
 	pose_override_timer = maxf(0.0, pose_override_timer - delta)
+	run_elapsed_time += delta
+	if combat.combo_hits > run_max_combo_hits:
+		run_max_combo_hits = combat.combo_hits
+		run_max_combo_rank = str(combat.get_rank_data()["id"])
+		if run_max_combo_rank == "SSS":
+			_record_achievement("combo_sss", 1, true)
+	if toast_timer > 0.0:
+		toast_timer -= delta
+		if toast_timer <= 0.0 and toast_panel:
+			toast_panel.visible = false
+	_update_interactive_tutorial(delta)
+
 	last_skill_er_timer = maxf(0.0, last_skill_er_timer - delta)
 	synergy_cd = maxf(0.0, synergy_cd - delta)
 	if enemies.size() > 0:
@@ -1249,19 +2323,26 @@ func _process(delta: float):
 	else:
 		target_reticle.visible = false
 
+	if parallax_mist_layer:
+		parallax_mist_layer.motion_offset.x += 14.0 * delta
+		parallax_mist_layer.motion_offset.y = sin(run_elapsed_time * 0.55) * 8.0
+
+	_process_ambient_world(delta)
 	_handle_one_handed_actions()
 	_process_camera_shake(delta)
 	_process_projectiles(delta)
 	_process_enemy_projectiles(delta)
+	_process_telegraphs(delta)
 	_process_sawblades(delta)
 	_process_heal_orbs()
 	_process_enemies(delta)
+	_process_dying_corpses(delta)
 	_check_room_progression()
 	_refresh_hud()
 
 
 func _physics_process(delta: float):
-	if game_over or victory or hitstop_timer > 0.0 or (upgrade_overlay and upgrade_overlay.visible) or (help_overlay and help_overlay.visible) or (boon_overlay and boon_overlay.visible):
+	if game_over or victory or hitstop_timer > 0.0 or _is_cutin_fullscreen() or (upgrade_overlay and upgrade_overlay.visible) or (help_overlay and help_overlay.visible) or (boon_overlay and boon_overlay.visible):
 		return
 
 	var move_vec := Vector2(
@@ -1287,44 +2368,66 @@ func _physics_process(delta: float):
 					if to_o.length() > 16.0:
 						move_vec = to_o.normalized()
 					break
+		elif enemies.size() == 0 and heal_orbs.size() == 0 and current_room < _total_rooms() - 1:
+			var target_x := (16.0 + float(current_room * ROOM_STRIDE)) * TILE_SIZE
+			if player.global_position.x < target_x:
+				var to_gate := Vector2(target_x, 4.5 * TILE_SIZE) - player.global_position
+				if to_gate.length() > 10.0:
+					move_vec = to_gate.normalized()
 
 	if move_vec.length() > 0.1:
 		facing_dir = move_vec.normalized()
+		_update_walk_direction(move_vec)
 
 	var aim_dir := _get_auto_aim_dir()
-	var face_vec := aim_dir if _get_nearest_enemy(350.0) != null else facing_dir
-	if face_vec.x < -0.05:
-		player_sprite.flip_h = true
-	elif face_vec.x > 0.05:
-		player_sprite.flip_h = false
+	var is_acting := attack_timer > 0.0 or pose_override_timer > 0.0
+	var use_aim_face := pose_override_timer > 0.0 or (move_vec.length() <= 0.1 and (is_acting or _get_nearest_enemy(350.0) != null))
+	var face_vec := aim_dir if use_aim_face else facing_dir
+	if not (_has_4dir_sheet(active_hero_id) and walk_dir_key != "walk_side" and not is_acting):
+		if face_vec.x < -0.05:
+			player_sprite.flip_h = true
+		elif face_vec.x > 0.05:
+			player_sprite.flip_h = false
 
-	var sp_now := Input.is_key_pressed(KEY_SPACE)
+	var sp_now := Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_SHIFT)
 	var sp_trigger := (sp_now and not _prev_space) or _touch_dash_queued
 	_touch_dash_queued = false
-	if sp_trigger and dash_cooldown <= 0.0 and dash_timer <= 0.0:
-		dash_dir = move_vec.normalized() if move_vec.length() > 0.1 else facing_dir
-		dash_timer = 0.18
-		dash_cooldown = 0.80
-		invuln_timer = 0.28
-		combat.on_dash_started()
-		sfx.play_sfx("dash")
-		_spawn_ghost_afterimage()
-		if _has_incoming_threat():
-			_activate_perfect_dodge()
-		if active_boons.has("thunder_dash"):
-			_spawn_ring_vfx(player.global_position, Color("#38bdf8"), 150.0)
-			for e in enemies:
-				if is_instance_valid(e) and e.global_position.distance_to(player.global_position) <= 155.0:
-					_damage_enemy(e, 45, (e.global_position - player.global_position).normalized(), Color("#38bdf8"), 0.2, true)
+	if sp_trigger and dash_timer <= 0.0:
+		if dash_cooldown > 0.0:
+			_reject_skill_feedback(skill_dash_pill, "⏳ วิชาตัวเบา %.1fs" % dash_cooldown)
+		else:
+			_pulse_skill_pill(skill_dash_pill, true)
+			dash_dir = move_vec.normalized() if move_vec.length() > 0.1 else facing_dir
+			dash_timer = 0.18
+			dash_cooldown = 0.80
+			invuln_timer = 0.28
+			combat.on_dash_started()
+			sfx.play_sfx("dash")
+			_spawn_ghost_afterimage()
+			if _has_incoming_threat():
+				_activate_perfect_dodge()
+			if active_boons.has("thunder_dash"):
+				_spawn_ring_vfx(player.global_position, Color("#38bdf8"), 150.0)
+				for e in enemies:
+					if is_instance_valid(e) and e.global_position.distance_to(player.global_position) <= 155.0:
+						_damage_enemy(e, 45, (e.global_position - player.global_position).normalized(), Color("#38bdf8"), 0.2, true)
 	_prev_space = sp_now
 
 	if dash_timer > 0.0:
 		dash_timer -= delta
 		player.velocity = dash_dir * 820.0
 		player.move_and_slide()
-		player_sprite.texture = _get_hero_tex(active_hero_id, "dash", player_sprite.texture)
+		if _has_4dir_sheet(active_hero_id):
+			_set_player_strip(_get_hero_tex(active_hero_id, "walk_side", player_sprite.texture), 3, 2)
+			if dash_dir.x < -0.05:
+				player_sprite.flip_h = true
+			elif dash_dir.x > 0.05:
+				player_sprite.flip_h = false
+		else:
+			_set_player_strip(_get_hero_tex(active_hero_id, "dash", player_sprite.texture), 1, 0)
 		if int(dash_timer * 60.0) % 3 == 0:
 			_spawn_ghost_afterimage()
+		_update_fake_z_height(delta)
 		return
 
 	var f_now := Input.is_key_pressed(KEY_F)
@@ -1342,31 +2445,137 @@ func _physics_process(delta: float):
 		_perform_basic_attack(aim_dir)
 
 	if pose_override_timer > 0.0:
-		player_sprite.texture = _get_hero_tex(active_hero_id, pose_override_key, player_sprite.texture)
+		if _has_4dir_sheet(active_hero_id):
+			var sk_tex := _get_hero_tex(active_hero_id, "skill_4f", player_sprite.texture)
+			if pose_override_key == "ultimate" or pose_override_key == "special":
+				_set_player_strip(sk_tex, 4, 2)
+			else:
+				var dur := maxf(pose_override_duration, 0.08)
+				var sk_frame := clampi(int(((dur - pose_override_timer) / dur) * 4.0), 0, 3)
+				_set_player_strip(sk_tex, 4, sk_frame)
+		else:
+			_set_player_strip(_get_hero_tex(active_hero_id, pose_override_key, player_sprite.texture), 1, 0)
 		player.velocity = move_vec * data["speed"] * 0.25
 		player.move_and_slide()
+		_update_fake_z_height(delta)
 		return
 
 	if attack_timer > 0.0:
 		attack_timer -= delta
-		var frame_idx := clampi(int((0.28 - attack_timer) / 0.09), 0, 2)
-		player_sprite.texture = _get_hero_tex(active_hero_id, "strike_%d" % frame_idx, player_sprite.texture)
+		if _has_4dir_sheet(active_hero_id):
+			var adur := maxf(attack_anim_duration, 0.08)
+			var aframe := clampi(int(((adur - maxf(0.0, attack_timer)) / adur) * 4.0), 0, 3)
+			_set_player_strip(_get_hero_tex(active_hero_id, "attack_4f", player_sprite.texture), 4, aframe)
+		else:
+			var frame_idx := clampi(int((0.28 - attack_timer) / 0.09), 0, 2)
+			_set_player_strip(_get_hero_tex(active_hero_id, "strike_%d" % frame_idx, player_sprite.texture), 1, 0)
 		player.velocity = move_vec * data["speed"] * 0.45
 		player.move_and_slide()
+		_update_fake_z_height(delta)
 		return
 
-	player.velocity = move_vec * data["speed"]
+	var target_vel := move_vec * float(data["speed"])
+	var accel := 2400.0 if move_vec.length() > 0.1 else 2800.0
+	player.velocity = player.velocity.move_toward(target_vel, accel * delta)
 	player.move_and_slide()
 
-	if move_vec.length() > 0.1:
-		walk_timer += delta
-		if walk_timer >= 0.11:
-			walk_timer = 0.0
-			walk_step = (walk_step + 1) % 4
+	var speed_now := player.velocity.length()
+	var actively_walking := (move_vec.length() > 0.08 and speed_now >= 14.0) or speed_now >= 65.0
+	if actively_walking:
+		if not walk_was_moving:
+			# Immediately enter a contact stride on the first frame of motion so feet never slide in idle pose.
+			walk_step = walk_next_lead
+			walk_next_lead = 2 if walk_next_lead == 0 else 0
+			walk_dist_accum = 0.0
+			walk_was_moving = true
+		else:
+			# Advance walk phases strictly by world distance covered (~28 px per quarter-cycle at 0.42x scale).
+			walk_dist_accum += speed_now * delta
+			const WALK_PHASE_DIST := 28.0
+			while walk_dist_accum >= WALK_PHASE_DIST:
+				walk_dist_accum -= WALK_PHASE_DIST
+				walk_step = (walk_step + 1) % 4
 		var seq: int = [0, 1, 2, 1][walk_step]
-		player_sprite.texture = _get_hero_tex(active_hero_id, "stride_%d" % seq, player_sprite.texture)
+		if _has_4dir_sheet(active_hero_id):
+			_set_player_strip(_get_hero_tex(active_hero_id, walk_dir_key, player_sprite.texture), 3, seq)
+		else:
+			_set_player_strip(_get_hero_tex(active_hero_id, "stride_%d" % seq, player_sprite.texture), 1, 0)
 	else:
-		player_sprite.texture = _get_hero_tex(active_hero_id, "stride_0", player_sprite.texture)
+		walk_was_moving = false
+		walk_dist_accum = 0.0
+		walk_timer = 0.0
+		if _has_4dir_sheet(active_hero_id):
+			_set_player_strip(_get_hero_tex(active_hero_id, walk_dir_key, player_sprite.texture), 3, 1)
+		else:
+			_set_player_strip(_get_hero_tex(active_hero_id, "stride_0", player_sprite.texture), 1, 0)
+	_update_fake_z_height(delta)
+
+
+func _spawn_footstep_dust():
+	if not is_instance_valid(floor_layer) or not is_instance_valid(player):
+		return
+	var puff := Polygon2D.new()
+	puff.polygon = _make_ellipse(7.5, 4.0, 10)
+	puff.color = Color(0.72, 0.78, 0.84, 0.34)
+	puff.position = player.global_position + Vector2(randf_range(-5.0, 5.0), 6.0)
+	puff.z_index = 2
+	floor_layer.add_child(puff)
+	var drift := -player.velocity.normalized() * 14.0 + Vector2(0.0, -5.0)
+	var tw := create_tween()
+	tw.tween_property(puff, "position", puff.position + drift, 0.28).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(puff, "scale", Vector2(1.75, 1.55), 0.28)
+	tw.parallel().tween_property(puff, "modulate:a", 0.0, 0.28)
+	tw.tween_callback(puff.queue_free)
+
+
+func _update_fake_z_height(delta: float):
+	var target_z := 0.0
+	var is_moving := is_instance_valid(player) and player.velocity.length() > 20.0 and dash_timer <= 0.0 and attack_timer <= 0.0 and pose_override_timer <= 0.0
+	if dash_timer > 0.0:
+		target_z = 22.0
+	elif pose_override_timer > 0.0:
+		if pose_override_key == "ultimate":
+			target_z = 32.0
+		elif pose_override_key == "skill_2" or pose_override_key == "special":
+			target_z = 22.0
+		else:
+			target_z = 12.0
+	elif attack_timer > 0.0:
+		var prog := clampf((0.28 - attack_timer) / 0.28, 0.0, 1.0)
+		target_z = sin(prog * PI) * 8.0
+	elif is_moving:
+		walk_cycle_phase += delta * 10.5
+		target_z = 0.0 # Keep the planted foot on the floor during the walk cycle.
+		footstep_dust_timer += delta
+		if footstep_dust_timer >= 0.20:
+			footstep_dust_timer = 0.0
+			_spawn_footstep_dust()
+	else:
+		idle_breath_phase += delta * 3.0
+		footstep_dust_timer = 0.14
+
+	player_z_height = lerpf(player_z_height, target_z, minf(1.0, delta * 24.0))
+	if player_sprite:
+		player_sprite.offset = Vector2(HERO_OFFSET.x, HERO_OFFSET.y - player_z_height)
+		if is_moving:
+			# Sprite frames provide the gait; scaling/tilting around the centre slides feet.
+			player_sprite.scale = player_sprite.scale.lerp(HERO_SCALE, minf(1.0, delta * 20.0))
+			player_sprite.rotation = lerpf(player_sprite.rotation, 0.0, minf(1.0, delta * 18.0))
+		else:
+			var br := sin(idle_breath_phase)
+			var target_sc := HERO_SCALE * Vector2(1.0 - br * 0.015, 1.0 + br * 0.022)
+			player_sprite.scale = player_sprite.scale.lerp(target_sc, minf(1.0, delta * 14.0))
+			player_sprite.rotation = lerpf(player_sprite.rotation, 0.0, minf(1.0, delta * 18.0))
+
+	if is_instance_valid(camera):
+		var target_ahead := Vector2(facing_dir.x * (36.0 if is_moving else 12.0), facing_dir.y * (14.0 if is_moving else 5.0))
+		cam_look_ahead = cam_look_ahead.lerp(target_ahead, minf(1.0, delta * 3.5))
+		camera.position = cam_look_ahead
+
+	if player_shadow:
+		var sc := clampf(1.0 - (player_z_height / 95.0), 0.62, 1.0)
+		player_shadow.scale = Vector2(sc, sc)
+		player_shadow.color.a = clampf(0.55 * (1.0 - player_z_height / 75.0), 0.20, 0.55)
 
 
 func _handle_one_handed_actions():
@@ -1388,8 +2597,7 @@ func _handle_one_handed_actions():
 
 	var kc := Input.is_key_pressed(KEY_C)
 	if kc and not _prev_c:
-		auto_attack_enabled = not auto_attack_enabled
-		_show_banner("โหมดตีอัตโนมัติ: %s" % ("เปิด (ON)" if auto_attack_enabled else "ปิด (OFF)"), 1.2)
+		_toggle_auto_attack()
 	_prev_c = kc
 
 	var kq := Input.is_key_pressed(KEY_Q)
@@ -1408,13 +2616,22 @@ func _handle_one_handed_actions():
 
 
 func _perform_basic_attack(aim_dir: Vector2):
-	attack_timer = 0.28
+	_pulse_skill_pill(skill_auto_pill, true)
+	attack_anim_duration = 0.32 if _has_4dir_sheet(active_hero_id) else 0.28
+	attack_timer = attack_anim_duration
+	if _has_4dir_sheet(active_hero_id):
+		if aim_dir.x < -0.05:
+			player_sprite.flip_h = true
+		elif aim_dir.x > 0.05:
+			player_sprite.flip_h = false
+		_set_player_strip(_get_hero_tex(active_hero_id, "attack_4f", player_sprite.texture), 4, 0)
 	var data: Dictionary = HeroData.HEROES[active_hero_id]
 	var atk := int(_get_hero_stat(active_hero_id, "atk"))
+	var eff_crit := _get_hero_stat(active_hero_id, "crit")
 	if data["is_ranged"]:
 		sfx.play_sfx("talisman")
 		VfxStudio.spawn_critical_star_burst(fx_layer, player.global_position + aim_dir * 32.0, data["color"], 0.45)
-		_spawn_projectile(player.global_position + aim_dir * 26.0, aim_dir, atk, data["vfx_attack"], data["color"], 660.0, false)
+		_spawn_projectile(player.global_position + aim_dir * 26.0, aim_dir, atk, data["vfx_attack"], data["color"], 660.0, false, eff_crit)
 	else:
 		sfx.play_sfx("slash")
 		VfxStudio.spawn_azure_star_slash(fx_layer, player.global_position + aim_dir * 28.0, aim_dir.angle(), data["color"], 0.92)
@@ -1425,7 +2642,7 @@ func _perform_basic_attack(aim_dir: Vector2):
 				continue
 			var to_e: Vector2 = e.global_position - player.global_position
 			if to_e.length() <= data["range"] and to_e.normalized().dot(aim_dir) > 0.05:
-				_damage_enemy(e, atk, aim_dir, data["color"], data["crit"], false)
+				_damage_enemy(e, atk, aim_dir, data["color"], eff_crit, false)
 				hit_any = true
 		if hit_any:
 			shake_strength = 5.5
@@ -1433,13 +2650,27 @@ func _perform_basic_attack(aim_dir: Vector2):
 
 func _cast_skill_q(aim_dir: Vector2):
 	var data: Dictionary = HeroData.HEROES[active_hero_id]
-	if q_cd > 0.0 or hero_sp[active_hero_id] < data["q_cost"]:
+	if q_cd > 0.0:
+		_reject_skill_feedback(skill_q_pill, "⏳ ติดคูลดาวน์ %.1fs!" % q_cd)
 		return
+	if hero_sp[active_hero_id] < data["q_cost"]:
+		_reject_skill_feedback(skill_q_pill, "💧 ปราณไม่พอ! (%d/%d)" % [int(hero_sp[active_hero_id]), int(data["q_cost"])])
+		return
+	_pulse_skill_pill(skill_q_pill, true)
 	hero_sp[active_hero_id] -= data["q_cost"]
-	q_cd = 3.0 * (0.80 if active_boons.has("swift_qi") else 1.0)
+	var cdr_mult := clampf(1.0 - _get_hero_stat(active_hero_id, "cd_red"), 0.50, 1.0)
+	q_cd = 3.0 * (0.80 if active_boons.has("swift_qi") else 1.0) * cdr_mult
 	var atk := _get_hero_stat(active_hero_id, "atk")
-	pose_override_key = "skill_1"
-	pose_override_timer = 0.28
+	var eff_crit := _get_hero_stat(active_hero_id, "crit")
+	pose_override_key = "skill_4f" if _has_4dir_sheet(active_hero_id) else "skill_1"
+	pose_override_duration = 0.32 if _has_4dir_sheet(active_hero_id) else 0.28
+	pose_override_timer = pose_override_duration
+	if _has_4dir_sheet(active_hero_id):
+		if aim_dir.x < -0.05:
+			player_sprite.flip_h = true
+		elif aim_dir.x > 0.05:
+			player_sprite.flip_h = false
+		_set_player_strip(_get_hero_tex(active_hero_id, "skill_4f", player_sprite.texture), 4, 0)
 	shake_strength = 7.0
 	sfx.play_sfx("skill_q")
 	_show_banner("✨ %s!" % data["q_name"], 1.0)
@@ -1449,7 +2680,7 @@ func _cast_skill_q(aim_dir: Vector2):
 		VfxStudio.spawn_ice_crescent_wave(fx_layer, player.global_position + aim_dir * 32.0, aim_dir.angle(), data["color"])
 		for ang in [-0.28, 0.0, 0.28]:
 			var d := aim_dir.rotated(ang)
-			_spawn_projectile(player.global_position + d * 28.0, d, int(atk * 1.35), data["vfx_attack"], data["color"], 720.0, true)
+			_spawn_projectile(player.global_position + d * 28.0, d, int(atk * 1.35), data["vfx_attack"], data["color"], 720.0, true, eff_crit)
 	elif active_hero_id == "ye_shangye":
 		VfxStudio.spawn_demon_chain_lash(fx_layer, player.global_position + aim_dir * 42.0, aim_dir.angle(), data["color"])
 		_spawn_slash_vfx(player.global_position + aim_dir * 75.0, aim_dir.angle(), data["vfx_attack"], data["color"], 1.55)
@@ -1460,15 +2691,15 @@ func _cast_skill_q(aim_dir: Vector2):
 				var pull_pos := player.global_position + aim_dir * 68.0
 				var tw := create_tween()
 				tw.tween_property(e, "global_position", pull_pos, 0.16)
-				_damage_enemy(e, int(atk * 1.45), aim_dir, data["color"], 0.30, true)
+				_damage_enemy(e, int(atk * 1.45), aim_dir, data["color"], maxf(0.30, eff_crit), true)
 				e.set_meta("stun", 0.85)
 	elif active_hero_id == "song_ren":
 		VfxStudio.spawn_talisman_lightning_burst(fx_layer, player.global_position + aim_dir * 30.0, aim_dir.angle(), data["color"])
 		for ang in [-0.40, -0.20, 0.0, 0.20, 0.40]:
 			var d := aim_dir.rotated(ang)
-			_spawn_projectile(player.global_position + d * 28.0, d, int(atk * 1.15), data["vfx_attack"], data["color"], 700.0, true)
+			_spawn_projectile(player.global_position + d * 28.0, d, int(atk * 1.15), data["vfx_attack"], data["color"], 700.0, true, eff_crit)
 	else:
-		var reach := 270.0 if active_hero_id == "yu_han" else 220.0
+		var reach := 235.0 if active_hero_id == "yu_han" else 220.0
 		if active_hero_id == "hei_shan":
 			VfxStudio.spawn_crimson_ribbon_needles(fx_layer, player.global_position + aim_dir * 28.0, aim_dir.angle(), data["color"])
 		elif active_hero_id == "chen_xi":
@@ -1486,14 +2717,23 @@ func _cast_skill_q(aim_dir: Vector2):
 
 func _cast_skill_e():
 	var data: Dictionary = HeroData.HEROES[active_hero_id]
-	if e_cd > 0.0 or hero_sp[active_hero_id] < data["e_cost"]:
+	if e_cd > 0.0:
+		_reject_skill_feedback(skill_e_pill, "⏳ ติดคูลดาวน์ %.1fs!" % e_cd)
 		return
+	if hero_sp[active_hero_id] < data["e_cost"]:
+		_reject_skill_feedback(skill_e_pill, "💧 ปราณไม่พอ! (%d/%d)" % [int(hero_sp[active_hero_id]), int(data["e_cost"])])
+		return
+	_pulse_skill_pill(skill_e_pill, true)
 	hero_sp[active_hero_id] -= data["e_cost"]
-	e_cd = 6.0 * (0.80 if active_boons.has("swift_qi") else 1.0)
+	var cdr_mult_e := clampf(1.0 - _get_hero_stat(active_hero_id, "cd_red"), 0.50, 1.0)
+	e_cd = 6.0 * (0.80 if active_boons.has("swift_qi") else 1.0) * cdr_mult_e
 	last_skill_er_timer = 2.5
 	var atk := _get_hero_stat(active_hero_id, "atk")
-	pose_override_key = "skill_2"
-	pose_override_timer = 0.36
+	pose_override_key = "skill_4f" if _has_4dir_sheet(active_hero_id) else "skill_2"
+	pose_override_duration = 0.36
+	pose_override_timer = pose_override_duration
+	if _has_4dir_sheet(active_hero_id):
+		_set_player_strip(_get_hero_tex(active_hero_id, "skill_4f", player_sprite.texture), 4, 0)
 	shake_strength = 12.0
 	sfx.play_sfx("skill_e")
 	_show_banner("🔥 %s! (สลับตัว [1/2/3/Tab] เพื่อผสานปราณ!)" % data["e_name"], 1.4)
@@ -1528,7 +2768,7 @@ func _cast_skill_e():
 		_spawn_floating_text(player.global_position + Vector2(0, -52), "+45 HP ทีม!", Color("#4ade80"), true)
 
 	var e_hit := false
-	for e in enemies:
+	for e in enemies.duplicate():
 		if not is_instance_valid(e):
 			continue
 		if e.global_position.distance_to(player.global_position) <= 220.0:
@@ -1557,10 +2797,18 @@ func _cast_skill_e():
 
 func _cast_skill_r():
 	var data: Dictionary = HeroData.HEROES[active_hero_id]
-	if pending_ult_hero != "" or r_cd > 0.0 or hero_sp[active_hero_id] < data["r_cost"]:
+	if pending_ult_hero != "":
 		return
+	if r_cd > 0.0:
+		_reject_skill_feedback(skill_r_pill, "⏳ ติดคูลดาวน์ %.1fs!" % r_cd)
+		return
+	if hero_sp[active_hero_id] < data["r_cost"]:
+		_reject_skill_feedback(skill_r_pill, "💧 ปราณไม่พอ! (%d/%d)" % [int(hero_sp[active_hero_id]), int(data["r_cost"])])
+		return
+	_pulse_skill_pill(skill_r_pill, true)
 	hero_sp[active_hero_id] -= data["r_cost"]
-	r_cd = 12.0 * (0.80 if active_boons.has("swift_qi") else 1.0)
+	var cdr_mult_r := clampf(1.0 - _get_hero_stat(active_hero_id, "cd_red"), 0.50, 1.0)
+	r_cd = 12.0 * (0.80 if active_boons.has("swift_qi") else 1.0) * cdr_mult_r
 
 	var mode := _get_cutin_mode()
 	var has_clip: bool = cutin_overlay != null and cutin_overlay.has_cutin(active_hero_id)
@@ -1643,7 +2891,7 @@ func _trigger_ultimate_impact(pos: Vector2, data: Dictionary):
 	_spawn_ring_vfx(pos, col, 85.0)
 	shake_strength = maxf(shake_strength, 8.5)
 
-	for e in enemies:
+	for e in enemies.duplicate():
 		if not is_instance_valid(e):
 			continue
 		if e.global_position.distance_to(pos) <= 130.0:
@@ -1671,11 +2919,13 @@ func _has_incoming_threat() -> bool:
 	for t in active_telegraphs:
 		if ppos.distance_to(t["pos"]) <= float(t["radius"]) + 18.0:
 			return true
-	for e in enemies:
+	for e in enemies.duplicate():
 		if not is_instance_valid(e):
 			continue
 		if float(e.get_meta("stun", 0.0)) > 0.0:
 			continue
+		if float(e.get_meta("windup_timer", 0.0)) > 0.0:
+			return true
 		var def: Dictionary = MONSTER_DEFS[str(e.get_meta("kind"))]
 		if e.global_position.distance_to(ppos) <= float(def["range"]) + CombatSystem.PERFECT_DODGE_THREAT_PAD:
 			return true
@@ -1685,6 +2935,11 @@ func _has_incoming_threat() -> bool:
 func _activate_perfect_dodge() -> bool:
 	if not combat.trigger_perfect_dodge():
 		return false
+	run_perfect_dodges += 1
+	_record_achievement("dodge_5", 1)
+	_record_achievement("dodge_25", 1)
+	if tutorial_step == 1:
+		_advance_tutorial(2)
 	invuln_timer = maxf(invuln_timer, 0.55)
 	hero_sp[active_hero_id] = minf(_get_hero_stat(active_hero_id, "max_sp"), hero_sp[active_hero_id] + CombatSystem.PERFECT_DODGE_SP_GAIN)
 	Engine.time_scale = combat.get_desired_time_scale(hitstop_timer)
@@ -1755,6 +3010,11 @@ func _damage_enemy(e: CharacterBody2D, base_dmg: int, push_dir: Vector2, col: Co
 				if e.has_node("MarkLabel"):
 					e.get_node("MarkLabel").text = ""
 				combat.reaction_count += 1
+				run_reactions += 1
+				_record_achievement("reaction_10", 1)
+				_record_achievement("reaction_50", 1)
+				if tutorial_step == 3:
+					_complete_interactive_tutorial()
 				combat.add_combo(25.0, false)
 				var passive_mult := 1.25 if int(save_data.get("hero_passives", {}).get("ye_shangye", 0)) > 0 else 1.0
 				var r_col: Color = react["color"]
@@ -1793,6 +3053,8 @@ func _damage_enemy(e: CharacterBody2D, base_dmg: int, push_dir: Vector2, col: Co
 		elif is_skill:
 			e.set_meta("elem_mark", hero_elem)
 			e.set_meta("elem_timer", CombatSystem.ELEMENT_MARK_DURATION)
+			if tutorial_step == 2:
+				_advance_tutorial(3)
 			if e.has_node("MarkLabel"):
 				var einfo := CombatSystem.get_element_info(hero_elem)
 				var ml: Label = e.get_node("MarkLabel")
@@ -1800,55 +3062,167 @@ func _damage_enemy(e: CharacterBody2D, base_dmg: int, push_dir: Vector2, col: Co
 				ml.add_theme_color_override("font_color", einfo["color"])
 
 	var counter_crit: bool = allow_reaction and combat.consume_perfect_dodge_crit()
+	var vuln_open_now: float = float(e.get_meta("vuln_open", 0.0))
 	var is_crit := counter_crit or (randf() < crit_chance)
 	var crit_mult := 2.15 if (active_hero_id == "bai_yueling" and int(save_data.get("hero_passives", {}).get("bai_yueling", 0)) > 0) else 1.80
 	if counter_crit:
 		crit_mult = maxf(crit_mult, CombatSystem.PERFECT_DODGE_CRIT_MULT)
 		_spawn_floating_text(e.global_position + Vector2(0, -104), "★ สวนกลับพริบตา!", Color("#fde047"), true)
+	if vuln_open_now > 0.0:
+		base_dmg = int(round(float(base_dmg) * 1.25))
 	var dmg := int(base_dmg * (crit_mult if is_crit else 1.0))
+	var active_gear := EquipData.get_bonuses_for_hero(save_data.get("hero_gear", {}), active_hero_id, save_data.get("gear_levels", {}))
 	if allow_reaction:
 		combat.add_combo(12.0 if is_skill else 6.0, true)
+		attack_hit_counter += 1
+		var l_proc := float(active_gear.get("lightning_proc", 0.0))
+		if l_proc > 0.0 and attack_hit_counter % 5 == 0:
+			var bolt := int(round(_get_hero_stat(active_hero_id, "atk") * l_proc))
+			dmg += bolt
+			_spawn_ring_vfx(e.global_position, Color("#fde047"), 65.0)
+	run_hero_damage[active_hero_id] = int(run_hero_damage.get(active_hero_id, 0)) + dmg
 	var hp: float = e.get_meta("hp") - dmg
 	e.set_meta("hp", hp)
-	e.set_meta("flash", 0.14)
+	e.set_meta("flash", 0.12)
+	if hp > 0.0:
+		# Trigger Hurt recoil pose; heavy skills/crits also interrupt normal mob windups
+		if not def["is_boss"] or float(e.get_meta("casting", 0.0)) <= 0.0:
+			e.set_meta("hurt_timer", 0.16 if def["is_boss"] else 0.20)
+		if not def["is_boss"] and (is_skill or is_crit) and float(e.get_meta("windup_timer", 0.0)) > 0.0:
+			e.set_meta("windup_timer", 0.0)
+			e.set_meta("recovery_timer", 0.35)
+			var wc: Polygon2D = e.get_node_or_null("SlashCone")
+			if wc:
+				wc.visible = false
+			var wr: Line2D = e.get_node_or_null("WindupRing")
+			if wr:
+				wr.visible = false
+			var wl: Label = e.get_node_or_null("WindupLabel")
+			if wl:
+				wl.visible = false
+	if e.has_node("Sprite"):
+		var esp: Sprite2D = e.get_node("Sprite")
+		var base_sc: Vector2 = e.get_meta("base_scale", esp.scale)
+		esp.scale = Vector2(base_sc.x * 1.12, base_sc.y * 0.88)
+		var htw := esp.create_tween()
+		htw.tween_property(esp, "scale", base_sc, 0.11).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	var is_heavy_hit: bool = is_skill or vuln_open_now > 0.0
+	if is_instance_valid(fx_layer) and not bool(save_data.get("fx_reduced", false)):
+		for si in range(3 if is_heavy_hit else 2):
+			var spk := ColorRect.new()
+			spk.size = Vector2(5.0, 5.0) if is_heavy_hit else Vector2(4.0, 4.0)
+			spk.color = col.lightened(0.35)
+			spk.position = e.global_position + Vector2(randf_range(-10.0, 10.0), randf_range(-38.0, -14.0))
+			fx_layer.add_child(spk)
+			var sdir := (push_dir.normalized() if push_dir.length() > 0.1 else Vector2.RIGHT).rotated(randf_range(-0.85, 0.85)) * randf_range(28.0, 56.0)
+			var stw := spk.create_tween()
+			stw.tween_property(spk, "position", spk.position + sdir, 0.20).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+			stw.parallel().tween_property(spk, "modulate:a", 0.0, 0.20)
+			stw.tween_callback(spk.queue_free)
+
+	# 3-tier Hit Impact: Light Basic vs Critical vs Heavy/Skill/Vulnerable-Counter
 	if not def.get("is_turret", false):
-		e.set_meta("kb", push_dir * (140.0 if (def["is_boss"] or def.get("is_miniboss", false)) else 360.0))
+		var kb_mag := (165.0 if is_heavy_hit else 95.0) if (def["is_boss"] or def.get("is_miniboss", false)) else (390.0 if is_heavy_hit else 240.0)
+		e.set_meta("kb", push_dir * kb_mag)
 
 	if is_crit:
-		hitstop_timer = 0.04
-		shake_strength = maxf(shake_strength, 8.5)
-		sfx.play_sfx("crit")
-		VfxStudio.spawn_critical_star_burst(fx_layer, e.global_position + Vector2(0, -32), col, 0.90)
+		run_max_crit_dmg = maxi(run_max_crit_dmg, dmg)
+		hitstop_timer = maxf(hitstop_timer, 0.048 if is_heavy_hit else 0.032)
+		shake_strength = maxf(shake_strength, 7.5 if is_heavy_hit else 5.2)
+		sfx.play_sfx("heavy_hit" if is_heavy_hit else "crit", 0.04)
+		VfxStudio.spawn_critical_star_burst(fx_layer, e.global_position + Vector2(0, -32), col, 0.95 if is_heavy_hit else 0.78)
+		var ls_crit := float(active_gear.get("lifesteal_crit", 0.0))
+		if ls_crit > 0.0:
+			hero_hp[active_hero_id] = minf(_get_hero_stat(active_hero_id, "max_hp"), hero_hp[active_hero_id] + maxf(2.0, float(dmg) * ls_crit))
 		if active_hero_id == "chen_xi":
 			hero_hp["chen_xi"] = minf(_get_hero_stat("chen_xi", "max_hp"), hero_hp["chen_xi"] + 6.0)
+		_spawn_floating_text(e.global_position, ("💥 %d!" % dmg) if is_heavy_hit else ("★ %d!" % dmg), Color("#fde047"), true)
+	elif is_heavy_hit:
+		hitstop_timer = maxf(hitstop_timer, 0.038)
+		shake_strength = maxf(shake_strength, 5.8)
+		sfx.play_sfx("heavy_hit", 0.05)
+		_spawn_floating_text(e.global_position, "✦ %d" % dmg, col.lightened(0.25), true)
 	else:
-		sfx.play_sfx("hit")
-
-	_spawn_floating_text(e.global_position + Vector2(0, -52), ("★ %d!" % dmg) if is_crit else str(dmg), col, is_crit)
+		shake_strength = maxf(shake_strength, 2.0)
+		sfx.play_sfx("hit", 0.08)
+		_spawn_floating_text(e.global_position, str(dmg), Color("#f8fafc"), false)
 
 	if hp <= 0.0:
 		_spawn_ring_vfx(e.global_position, col, 48.0)
 		var was_boss: bool = def["is_boss"]
 		var was_mini: bool = def.get("is_miniboss", false)
+		e.set_meta("is_dead", true)
+		_cancel_telegraphs_for(e)
 		enemies.erase(e)
-		e.queue_free()
+		_enter_enemy_death_pose(e, def)
 		if active_hero_id == "yu_han":
 			hero_hp["yu_han"] = minf(_get_hero_stat("yu_han", "max_hp"), hero_hp["yu_han"] + 8.0)
 		if active_boons.has("blood_lotus"):
 			hero_hp[active_hero_id] = minf(_get_hero_stat(active_hero_id, "max_hp"), hero_hp[active_hero_id] + 5.0)
 		if was_mini:
+			if boss_panel:
+				boss_panel.visible = false
 			_award_spirit_jade(15)
 			_spawn_floating_text(player.global_position + Vector2(0, -78), "+15 💎 หยกปราณ!", Color("#5eead4"), true)
 			_grant_boss_gear_drop(false)
 		if was_boss:
+			for ob in orbit_blades.duplicate():
+				if is_instance_valid(ob):
+					ob.queue_free()
+			orbit_blades.clear()
 			_award_spirit_jade(35)
 			_grant_boss_gear_drop(true)
 			_trigger_victory()
 
 
+func _enter_enemy_death_pose(e: CharacterBody2D, def: Dictionary):
+	if not is_instance_valid(e):
+		return
+	e.collision_layer = 0
+	e.collision_mask = 0
+	e.velocity = Vector2.ZERO
+	for child_name in ["HPBg", "ShieldBg", "ShieldAura", "MarkLabel", "WindupRing", "WindupLabel", "SlashCone", "VulnOpenLabel", "Phase2Aura"]:
+		var cn := e.get_node_or_null(child_name)
+		if cn:
+			cn.visible = false
+	var sp: Sprite2D = e.get_node_or_null("Sprite")
+	if sp:
+		sp.scale = e.get_meta("base_scale", sp.scale)
+		sp.modulate = Color(0.82, 0.78, 0.80, 1.0)
+		var stype := str(e.get_meta("sheet_type", ""))
+		if stype != "":
+			sp.rotation = 0.0
+			_set_enemy_sheet_pose(e, sp, "death")
+		else:
+			# Fallback collapse pose for single-frame monsters
+			sp.rotation = deg_to_rad(82.0 if not sp.flip_h else -82.0)
+			sp.offset.y = float(e.get_meta("base_offset_y", sp.offset.y)) * 0.25
+	dying_corpses.append({"node": e, "timer": 0.72 if bool(def.get("is_boss", false)) else 0.48})
+
+
+func _process_dying_corpses(delta: float):
+	for item in dying_corpses.duplicate():
+		var node_v: Variant = item.get("node")
+		if not is_instance_valid(node_v):
+			dying_corpses.erase(item)
+			continue
+		var n := node_v as Node2D
+		var t := float(item.get("timer", 0.0)) - delta
+		item["timer"] = t
+		if t <= 0.22:
+			n.modulate.a = clampf(t / 0.22, 0.0, 1.0)
+		if t <= 0.0:
+			dying_corpses.erase(item)
+			n.queue_free()
+
+
 func _process_enemies(delta: float):
 	var hard := str(save_data.get("difficulty", "normal")) == "hard"
 	var spd_mult := 1.20 if hard else 1.0
+	var active_windups := 0
+	for ew in enemies:
+		if is_instance_valid(ew) and float(ew.get_meta("windup_timer", 0.0)) > 0.0:
+			active_windups += 1
 	for e in enemies.duplicate():
 		if not is_instance_valid(e):
 			enemies.erase(e)
@@ -1858,6 +3232,8 @@ func _process_enemies(delta: float):
 		var sp: Sprite2D = e.get_node("Sprite")
 		var cdata := ChapterData.get_chapter(chapter)
 		var base_tint: Color = e.get_meta("custom_tint", cdata["boss_tint"] if def["is_boss"] else def.get("tint", Color.WHITE))
+		var wind_lbl: Label = e.get_node_or_null("WindupLabel")
+		var wind_ring: Line2D = e.get_node_or_null("WindupRing")
 
 		var trap_cd: float = float(e.get_meta("trap_cd", 0.0))
 		if trap_cd > 0.0:
@@ -1913,82 +3289,300 @@ func _process_enemies(delta: float):
 			sp.modulate = Color(3.0, 3.0, 3.0, 1.0) if flash > 0.0 else base_tint
 
 		var kb: Vector2 = e.get_meta("kb")
+		var ez: float = float(e.get_meta("z_height", 0.0))
+		if kb.length() > 10.0:
+			var target_ez := clampf(kb.length() * 0.055, 0.0, 18.0)
+			ez = lerpf(ez, target_ez, minf(1.0, delta * 20.0))
+		else:
+			ez = move_toward(ez, 0.0, 60.0 * delta)
+		e.set_meta("z_height", ez)
+		var base_oy := float(e.get_meta("base_offset_y", sp.offset.y))
+		var stype := str(e.get_meta("sheet_type", ""))
+		if stype != "":
+			sp.offset.y = base_oy - ez
+			sp.rotation = lerpf(sp.rotation, 0.0, minf(1.0, delta * 14.0))
+		else:
+			var life_phase := float(Time.get_ticks_msec()) * 0.004 + float(e.get_instance_id() % 31)
+			var gait := sin(life_phase * 3.0) if e.velocity.length() > 12.0 else sin(life_phase) * 0.25
+			sp.offset.y = base_oy - ez - absf(gait) * 1.5
+			sp.rotation = lerpf(sp.rotation, deg_to_rad(gait * 1.5), minf(1.0, delta * 10.0))
+		if e.has_node("Shadow"):
+			var esh: Polygon2D = e.get_node("Shadow")
+			var esc := clampf(1.0 - ez / 65.0, 0.68, 1.0)
+			esh.scale = Vector2(esc, esc)
+			esh.color.a = clampf(0.58 * (1.0 - ez / 55.0), 0.24, 0.58)
+
+		var slash_cone: Polygon2D = e.get_node_or_null("SlashCone")
+		var open_lbl: Label = e.get_node_or_null("VulnOpenLabel")
+		var vuln_open_t := maxf(0.0, float(e.get_meta("vuln_open", 0.0)) - delta)
+		e.set_meta("vuln_open", vuln_open_t)
+		if open_lbl:
+			open_lbl.visible = vuln_open_t > 0.0
+
+		var hurt_t := maxf(0.0, float(e.get_meta("hurt_timer", 0.0)) - delta)
+		e.set_meta("hurt_timer", hurt_t)
+
 		if kb.length() > 10.0:
 			e.velocity = kb
 			e.move_and_slide()
 			e.set_meta("kb", kb.lerp(Vector2.ZERO, 12.0 * delta))
+			_set_enemy_sheet_pose(e, sp, "hurt")
 			continue
 
 		var stun: float = e.get_meta("stun")
 		if stun > 0.0:
 			e.set_meta("stun", stun - delta)
+			e.set_meta("windup_timer", 0.0)
+			e.set_meta("attack_pose_timer", 0.0)
+			if wind_lbl:
+				wind_lbl.visible = false
+			if wind_ring:
+				wind_ring.visible = false
+			if slash_cone:
+				slash_cone.visible = false
+			_set_enemy_sheet_pose(e, sp, "hurt")
 			sp.modulate = Color(0.5, 0.85, 1.0, 1.0)
 			continue
 		elif flash <= 0.0:
 			sp.modulate = base_tint
 
+		# 1. Melee Windup State -> Strike Transition (exact visual-to-damage sync onlocked cone)
+		var wind_t: float = float(e.get_meta("windup_timer", 0.0))
+		if wind_t > 0.0:
+			wind_t -= delta
+			e.set_meta("windup_timer", maxf(0.0, wind_t))
+			e.set_meta("ai_state", "windup")
+			var wprog := clampf(1.0 - (wind_t / 0.48), 0.0, 1.0)
+			var lock_dir: Vector2 = e.get_meta("attack_dir", Vector2.RIGHT)
+			sp.flip_h = lock_dir.x < 0.0
+			_set_enemy_sheet_pose(e, sp, "windup", 0, "slam")
+			if wind_lbl:
+				wind_lbl.visible = true
+			if wind_ring:
+				wind_ring.visible = true
+				var rsc := lerpf(0.76, 1.06, wprog)
+				wind_ring.scale = Vector2(rsc, rsc)
+			if slash_cone:
+				slash_cone.visible = true
+				slash_cone.rotation = lock_dir.angle()
+				slash_cone.color = Color(0.98, 0.22, 0.26, lerpf(0.18, 0.46, wprog))
+			if stype == "":
+				sp.rotation = deg_to_rad((-12.0 if not sp.flip_h else 12.0) * wprog)
+			if flash <= 0.0:
+				sp.modulate = Color(1.50, 0.72, 0.72, 1.0)
+			if wind_t <= 0.0:
+				if wind_lbl:
+					wind_lbl.visible = false
+				if wind_ring:
+					wind_ring.visible = false
+				if slash_cone:
+					slash_cone.visible = false
+				sp.modulate = base_tint
+				e.set_meta("ai_state", "attack")
+				e.set_meta("attack_pose_timer", 0.18)
+				e.set_meta("recovery_timer", 0.65 if not def["is_boss"] else 0.50)
+				e.set_meta("atk_cd", 1.35 if def["is_boss"] else 1.75)
+				_set_enemy_sheet_pose(e, sp, "attack", 0, "slam")
+				var base_sc: Vector2 = e.get_meta("base_scale", sp.scale)
+				sp.scale = Vector2(base_sc.x * 1.12, base_sc.y * 0.92)
+				var ltw := sp.create_tween()
+				ltw.tween_property(sp, "scale", base_sc, 0.14)
+				# Lunge micro-step in locked swing direction + cone check so player sidestepping behind avoids hit!
+				e.velocity = lock_dir * 165.0
+				e.move_and_slide()
+				var p_vec: Vector2 = player.global_position - e.global_position
+				var p_dist := p_vec.length()
+				var in_arc := p_dist <= 30.0 or (p_dist <= float(def["range"]) + 16.0 and p_vec.normalized().dot(lock_dir) >= 0.18)
+				if in_arc:
+					_enemy_hit_player(def["atk"], e.global_position, def["is_boss"])
+			continue
+
+		# 2. Active Attack Swing Hold -> Recovery Window
+		var atk_pose_t: float = float(e.get_meta("attack_pose_timer", 0.0))
+		if atk_pose_t > 0.0:
+			e.set_meta("attack_pose_timer", maxf(0.0, atk_pose_t - delta))
+			e.set_meta("ai_state", "attack")
+			e.velocity = Vector2.ZERO
+			_set_enemy_sheet_pose(e, sp, "attack", 0, str(e.get_meta("cast_pose", "slam")))
+			continue
+
+		var recov_t: float = float(e.get_meta("recovery_timer", 0.0))
+		if recov_t > 0.0:
+			e.set_meta("recovery_timer", maxf(0.0, recov_t - delta))
+			e.set_meta("ai_state", "recovery")
+			e.velocity = Vector2.ZERO
+			_set_enemy_sheet_pose(e, sp, "recovery")
+			if vuln_open_t > 0.0 and flash <= 0.0:
+				sp.modulate = Color(0.86, 0.92, 1.05, 1.0)
+			continue
+
+		# 3. Boss Phase 2 Transformation (HP <= 50%)
 		if def["is_boss"] and not bool(e.get_meta("phase2_done", false)) and float(e.get_meta("hp")) < float(e.get_meta("max_hp")) * 0.5:
 			e.set_meta("phase2_done", true)
 			if boss_name_label:
 				boss_name_label.add_theme_color_override("font_color", Color("#ef4444"))
 			boss_name_label.text = "☠️ %s (เฟส 2 — %s!)" % [cdata["boss"], cdata["ult_name"]]
-			_show_banner("🔥 เฟส 2! ท่าไม้ตายบอส: %s! พุ่งเข้าจุดปลอดภัยตรงกลาง!" % cdata["ult_name"], 3.0)
+			_show_banner("🔥 เฟส 2! %s คลุ้มคลั่ง — สังเกตช่องว่างหลังท่าใหญ่เพื่อสวนกลับ!" % cdata["ult_name"], 3.0)
 			_spawn_ring_vfx(e.global_position, Color("#ef4444"), 240.0)
 			var push_out: Vector2 = (player.global_position - e.global_position).normalized()
+			if push_out.length() < 0.1:
+				push_out = Vector2.LEFT
 			player.global_position += push_out * 90.0
 			VfxStudio.spawn_boss_ultimate_vfx(floor_layer, fx_layer, e.global_position, chapter, cdata["light_color"])
+			_attach_boss_phase2_aura(e)
 			_spawn_orbit_blades(e.global_position)
 			_start_eight_dir_storm(e)
+
+		if bool(e.get_meta("phase2_done", false)):
+			enemy_spd_mult *= 1.22
+			var p2_aura: Node2D = e.get_node_or_null("Phase2Aura")
+			if p2_aura:
+				p2_aura.rotation += delta * 2.4
+				var pls := 1.0 + 0.08 * sin(run_elapsed_time * 7.5)
+				p2_aura.scale = Vector2(pls, pls)
 
 		var to_p: Vector2 = player.global_position - e.global_position
 		var dist: float = to_p.length()
 		var casting: float = e.get_meta("casting")
 		if casting > 0.0:
-			e.set_meta("casting", casting - delta)
-			sp.modulate = Color(1.8, 0.7, 1.8, 1.0)
+			e.set_meta("casting", maxf(0.0, casting - delta))
+			e.set_meta("ai_state", "windup")
+			e.velocity = Vector2.ZERO
+			_set_enemy_sheet_pose(e, sp, "windup", 0, str(e.get_meta("cast_pose", "slam")))
+			if flash <= 0.0:
+				sp.modulate = Color(1.45, 0.88, 0.72, 1.0)
 		elif def.get("is_turret", false):
 			var atk_cd: float = e.get_meta("atk_cd") - delta
 			e.set_meta("atk_cd", atk_cd)
 			if atk_cd <= 0.0 and dist < 620.0:
 				e.set_meta("atk_cd", 2.2)
 				_spawn_enemy_orb(e.global_position, to_p.normalized(), 16)
-		elif dist < 560.0:
+		elif dist < 580.0:
 			sp.flip_h = to_p.x < 0.0
 			var atk_cd: float = e.get_meta("atk_cd") - delta
 			e.set_meta("atk_cd", atk_cd)
 			var special_cd: float = e.get_meta("special_cd") - delta
 			e.set_meta("special_cd", special_cd)
+			var is_p2: bool = bool(e.get_meta("phase2_done", false))
 
-			if (def["is_boss"] or kind == "golem" or kind == "bronze_sentinel") and special_cd <= 0.0 and dist < 380.0:
+			if (def["is_boss"] or kind == "golem" or kind == "bronze_sentinel") and special_cd <= 0.0 and dist < 420.0:
 				if kind == "golem" or kind == "bronze_sentinel":
-					e.set_meta("special_cd", 4.0)
-					_start_slam_telegraph(e, 120.0, 26, 0.72)
+					e.set_meta("special_cd", 4.2)
+					e.set_meta("cast_pose", "slam")
+					_start_slam_telegraph(e, 120.0, 26, 0.75)
+				elif chapter == 1 and def["is_boss"]:
+					# Furnace Guardian: 3 distinct readable patterns + overheat counter window
+					var pat: int = int(e.get_meta("boss_phase", 0))
+					e.set_meta("boss_phase", (pat + 1) % 3)
+					e.set_meta("special_cd", 2.65 if is_p2 else 3.25)
+					if pat == 0:
+						e.set_meta("cast_pose", "slam")
+						_start_slam_telegraph(e, 158.0, 36, 0.70 if is_p2 else 0.88)
+					elif pat == 1:
+						e.set_meta("cast_pose", "wave")
+						_start_boss_wave_attack(e, to_p.normalized())
+					else:
+						e.set_meta("cast_pose", "slam")
+						_start_furnace_pillars(e, is_p2)
 				elif kind == "boss_ch3":
 					e.set_meta("special_cd", 2.9)
 					var phase: int = e.get_meta("boss_phase")
 					e.set_meta("boss_phase", (phase + 1) % 3)
 					if phase == 0:
+						e.set_meta("cast_pose", "wave")
 						_start_laser_telegraph(e, to_p.normalized())
-					elif phase == 1 and bool(e.get_meta("phase2_done", false)):
+					elif phase == 1 and is_p2:
+						e.set_meta("cast_pose", "slam")
 						_start_eight_dir_storm(e)
 					else:
+						e.set_meta("cast_pose", "wave")
 						_start_boss_wave_attack(e, to_p.normalized())
 				else:
 					e.set_meta("special_cd", 2.7 if kind == "boss_ch2" else 3.1)
 					var phase: int = e.get_meta("boss_phase")
 					e.set_meta("boss_phase", (phase + 1) % 2)
 					if phase == 0:
-						_start_slam_telegraph(e, 175.0 if kind == "boss_ch2" else 165.0, 42 if kind == "boss_ch2" else 38, 0.72 if kind == "boss_ch2" else 0.85)
+						e.set_meta("cast_pose", "slam")
+						_start_slam_telegraph(e, 175.0 if kind == "boss_ch2" else 160.0, 42 if kind == "boss_ch2" else 38, 0.72 if kind == "boss_ch2" else 0.85)
 					else:
+						e.set_meta("cast_pose", "wave")
 						_start_boss_wave_attack(e, to_p.normalized())
-			elif dist > def["range"]:
-				e.velocity = to_p.normalized() * float(def["speed"]) * enemy_spd_mult
-				e.move_and_slide()
-			elif atk_cd <= 0.0:
-				e.set_meta("atk_cd", 1.35 if def["is_boss"] else 1.65)
-				_enemy_hit_player(def["atk"], e.global_position, def["is_boss"])
+			else:
+				# Anti-stacking surround positioning + personal-space standoff so mobs never pile onto hero sprite
+				var sep_vec: Vector2 = Vector2.ZERO
+				var sep_rad := 105.0 if def["is_boss"] else 86.0
+				for other in enemies:
+					if is_instance_valid(other) and other != e:
+						var o_pos: Vector2 = (other as Node2D).global_position
+						var od: float = e.global_position.distance_to(o_pos)
+						if od > 0.1 and od < sep_rad:
+							sep_vec += (e.global_position - o_pos).normalized() * ((sep_rad - od) / sep_rad) * 2.1
 
-		if def["is_boss"]:
+				var max_simul: int = 1 if (current_room == 0 and chapter == 1) else 2
+				var can_engage: bool = def["is_boss"] or (atk_cd <= 0.35 and active_windups < max_simul)
+				var slot_ang: float = float(e.get_meta("surround_angle", 0.0))
+				var ring_r: float = (float(def["range"]) * 0.86) if can_engage else (float(def["range"]) * 1.38)
+				var min_standoff: float = 88.0 if def["is_boss"] else 56.0
+				ring_r = maxf(ring_r, min_standoff)
+
+				var radial_from_p: Vector2 = -to_p.normalized() if dist > 0.1 else Vector2.RIGHT
+				var slot_dir: Vector2 = Vector2(cos(slot_ang), sin(slot_ang) * 0.74).normalized()
+				var desired_dir: Vector2 = (radial_from_p * 0.55 + slot_dir * 0.45).normalized()
+				var desired_pos: Vector2 = player.global_position + desired_dir * ring_r
+				var e_pos: Vector2 = (e as Node2D).global_position
+				var to_slot: Vector2 = desired_pos - e_pos
+
+				if dist < min_standoff - 6.0:
+					# Step outward cleanly if overlapping the player
+					var push_away: Vector2 = (radial_from_p * 1.5 + sep_vec).normalized()
+					e.velocity = push_away * float(def["speed"]) * 0.85 * enemy_spd_mult
+					e.move_and_slide()
+				elif to_slot.length() > 14.0 or sep_vec.length() > 0.18:
+					var steer_dir: Vector2 = ((to_slot.normalized() if to_slot.length() > 8.0 else Vector2.ZERO) + sep_vec).normalized()
+					var spd_scale: float = 1.0 if dist > float(def["range"]) else 0.74
+					e.velocity = steer_dir * float(def["speed"]) * spd_scale * enemy_spd_mult
+					e.move_and_slide()
+				else:
+					e.velocity = Vector2.ZERO
+
+				var e_vel: Vector2 = (e as CharacterBody2D).velocity
+				if hurt_t > 0.0:
+					_set_enemy_sheet_pose(e, sp, "hurt")
+				elif e_vel.length() > 14.0:
+					e.set_meta("ai_state", "move")
+					var wdist: float = float(e.get_meta("walk_dist", 0.0)) + e_vel.length() * delta
+					var widx: int = int(e.get_meta("walk_idx", 0))
+					if wdist >= (38.0 if def["is_boss"] else 28.0):
+						wdist = 0.0
+						widx = (widx + 1) % 2
+					e.set_meta("walk_dist", wdist)
+					e.set_meta("walk_idx", widx)
+					_set_enemy_sheet_pose(e, sp, "move", widx)
+				else:
+					e.set_meta("ai_state", "idle")
+					_set_enemy_sheet_pose(e, sp, "idle")
+
+				if dist <= float(def["range"]) + 10.0 and atk_cd <= 0.0 and active_windups < max_simul:
+					var lock_d := to_p.normalized() if dist > 0.1 else Vector2.RIGHT
+					e.set_meta("attack_dir", lock_d)
+					e.set_meta("windup_timer", 0.48)
+					e.set_meta("ai_state", "windup")
+					e.velocity = Vector2.ZERO
+					active_windups += 1
+					_set_enemy_sheet_pose(e, sp, "windup", 0, "slam")
+					if wind_lbl:
+						wind_lbl.visible = true
+					if wind_ring:
+						wind_ring.visible = true
+					if slash_cone:
+						slash_cone.visible = true
+						slash_cone.rotation = lock_d.angle()
+		else:
+			e.velocity = Vector2.ZERO
+			e.set_meta("ai_state", "idle")
+			_set_enemy_sheet_pose(e, sp, "hurt" if hurt_t > 0.0 else "idle")
+
+		if def["is_boss"] or def.get("is_miniboss", false):
 			boss_bar.max_value = e.get_meta("max_hp")
 			boss_bar.value = e.get_meta("hp")
 		elif e.has_node("HPBg/HPFg"):
@@ -2005,8 +3599,19 @@ func _enemy_hit_player(dmg: int, _src_pos: Vector2, is_boss: bool):
 		return
 	invuln_timer = 0.45
 	combat.on_player_damaged()
-	var final_dmg := int(round(float(dmg) * (0.82 if active_boons.has("jade_aegis") else 1.0)))
-	hero_hp[active_hero_id] = maxf(0.0, hero_hp[active_hero_id] - final_dmg)
+	var dmg_mult := 0.82 if active_boons.has("jade_aegis") else 1.0
+	var gear_b := EquipData.get_bonuses_for_hero(save_data.get("hero_gear", {}), active_hero_id, save_data.get("gear_levels", {}))
+	var dmg_red := float(gear_b.get("dmg_red", 0.0))
+	if hero_hp[active_hero_id] < _get_hero_stat(active_hero_id, "max_hp") * 0.30:
+		dmg_red += float(gear_b.get("low_hp_dmg_red", 0.0))
+	dmg_mult *= maxf(0.25, 1.0 - dmg_red)
+	var final_dmg := int(round(float(dmg) * dmg_mult))
+	if chapter == 1 and current_room == 0:
+		final_dmg = maxi(2, int(round(float(final_dmg) * 0.40)))
+	if tutorial_step > 0 and current_room == 0:
+		hero_hp[active_hero_id] = maxf(35.0, hero_hp[active_hero_id] - final_dmg)
+	else:
+		hero_hp[active_hero_id] = maxf(0.0, hero_hp[active_hero_id] - final_dmg)
 	shake_strength = 10.0 if is_boss else 6.0
 	_spawn_floating_text(player.global_position + Vector2(0, -54), "-%d" % final_dmg, Color("#ef4444"), false)
 
@@ -2041,10 +3646,59 @@ func _process_projectiles(delta: float):
 			continue
 		for e in enemies:
 			if is_instance_valid(e) and e.global_position.distance_to(p.global_position) < 42.0:
-				_damage_enemy(e, p.get_meta("dmg"), p.get_meta("vel").normalized(), p.get_meta("col"), 0.25, bool(p.get_meta("is_skill", false)))
+				_damage_enemy(e, p.get_meta("dmg"), p.get_meta("vel").normalized(), p.get_meta("col"), float(p.get_meta("crit", 0.25)), bool(p.get_meta("is_skill", false)))
 				projectiles.erase(p)
 				p.queue_free()
 				break
+
+
+func _clear_exit_hint():
+	if is_instance_valid(active_exit_hint):
+		active_exit_hint.queue_free()
+	active_exit_hint = null
+
+
+func _spawn_exit_hint_badge(orb_x: float):
+	_clear_exit_hint()
+	var holder := Node2D.new()
+	var base_p := Vector2(orb_x + 56.0, 3.35 * TILE_SIZE)
+	holder.position = base_p
+	holder.set_meta("base_pos", base_p)
+	holder.z_index = 9
+
+	var glow := Polygon2D.new()
+	glow.polygon = PackedVector2Array([
+		Vector2(-8.0, -4.0), Vector2(126.0, -4.0), Vector2(136.0, 16.0), Vector2(126.0, 36.0), Vector2(-8.0, 36.0)
+	])
+	glow.color = Color(0.04, 0.16, 0.15, 0.84)
+	holder.add_child(glow)
+
+	var border := Line2D.new()
+	border.points = PackedVector2Array([
+		Vector2(-8.0, -4.0), Vector2(126.0, -4.0), Vector2(136.0, 16.0), Vector2(126.0, 36.0), Vector2(-8.0, 36.0), Vector2(-8.0, -4.0)
+	])
+	border.width = 2.0
+	border.default_color = Color("#34d399")
+	holder.add_child(border)
+
+	var exit_lbl := Label.new()
+	exit_lbl.text = "⛩️ ทางออก →"
+	exit_lbl.position = Vector2(2.0, 1.0)
+	exit_lbl.add_theme_font_size_override("font_size", 18)
+	exit_lbl.add_theme_color_override("font_color", Color("#a7f3d0"))
+	exit_lbl.add_theme_color_override("font_outline_color", Color(0.02, 0.06, 0.08, 0.96))
+	exit_lbl.add_theme_constant_override("outline_size", 4)
+	holder.add_child(exit_lbl)
+
+	# Portal threshold glow right at the corridor entrance
+	var gate_glow := Polygon2D.new()
+	gate_glow.polygon = _make_ellipse(22.0, TILE_SIZE * 1.32, 18)
+	gate_glow.color = Color(0.20, 0.94, 0.72, 0.24)
+	gate_glow.position = Vector2(82.0, 1.15 * TILE_SIZE)
+	holder.add_child(gate_glow)
+
+	fx_layer.add_child(holder)
+	active_exit_hint = holder
 
 
 func _check_room_progression():
@@ -2059,6 +3713,7 @@ func _check_room_progression():
 			room_gates[current_room].queue_free()
 			var orb_x := (12.0 + float(current_room * ROOM_STRIDE)) * TILE_SIZE
 			_spawn_heal_orb(Vector2(orb_x, 4.5 * TILE_SIZE))
+			_spawn_exit_hint_badge(orb_x)
 			var floor_no := ChapterData.get_floor_number(chapter, current_room)
 			_show_banner("✨ ชั้นที่ %d/100 เคลียร์! (+5 💎) เก็บโอสถหยกแล้วเดินไปทางขวา" % floor_no, 2.8)
 			if (current_room == 2 or current_room == 4 or current_room == 6 or current_room == 8) and not boon_granted_rooms.has(current_room):
@@ -2067,10 +3722,11 @@ func _check_room_progression():
 
 	var next_x := (15.5 + float(current_room * ROOM_STRIDE)) * TILE_SIZE
 	if current_room < total - 1 and player.global_position.x > next_x:
+		_clear_exit_hint()
 		_spawn_room_wave(current_room + 1)
 
 
-func _spawn_projectile(pos: Vector2, dir: Vector2, dmg: int, tex_path: String, col: Color, speed: float = 640.0, is_skill: bool = false):
+func _spawn_projectile(pos: Vector2, dir: Vector2, dmg: int, tex_path: String, col: Color, speed: float = 640.0, is_skill: bool = false, crit_chance: float = -1.0):
 	var p := Sprite2D.new()
 	p.texture = load(tex_path)
 	p.position = pos
@@ -2081,6 +3737,7 @@ func _spawn_projectile(pos: Vector2, dir: Vector2, dmg: int, tex_path: String, c
 	p.set_meta("col", col)
 	p.set_meta("life", 0.85)
 	p.set_meta("is_skill", is_skill)
+	p.set_meta("crit", crit_chance if crit_chance >= 0.0 else _get_hero_stat(active_hero_id, "crit"))
 	fx_layer.add_child(p)
 	projectiles.append(p)
 
@@ -2147,11 +3804,35 @@ func _spawn_ring_vfx(pos: Vector2, col: Color, radius: float):
 func _spawn_heal_orb(pos: Vector2):
 	var orb := Node2D.new()
 	orb.position = pos
-	var poly := Polygon2D.new()
-	poly.polygon = _make_ellipse(14.0, 14.0, 16)
-	poly.color = Color("#4ade80")
-	orb.add_child(poly)
-	_add_light(orb, Color("#4ade80"), 1.5, 2.2)
+	orb.set_meta("base_y", pos.y)
+	var shadow := Polygon2D.new()
+	shadow.polygon = _make_ellipse(15.0, 6.0, 12)
+	shadow.color = Color(0.0, 0.0, 0.0, 0.42)
+	shadow.position = Vector2(0, 12.0)
+	orb.add_child(shadow)
+
+	var aura := Line2D.new()
+	var a_pts := _make_ellipse(18.0, 18.0, 20)
+	a_pts.append(a_pts[0])
+	aura.points = a_pts
+	aura.width = 2.0
+	aura.default_color = Color(0.32, 0.96, 0.72, 0.68)
+	aura.name = "OrbAura"
+	orb.add_child(aura)
+
+	var outer := Polygon2D.new()
+	outer.polygon = _make_ellipse(12.5, 12.5, 16)
+	outer.color = Color("#10b981")
+	outer.name = "OrbCore"
+	orb.add_child(outer)
+
+	var inner := Polygon2D.new()
+	inner.polygon = _make_ellipse(6.5, 6.5, 12)
+	inner.color = Color("#d1fae5")
+	inner.position = Vector2(-2.5, -2.5)
+	outer.add_child(inner)
+
+	_add_light(orb, Color("#34d399"), 1.35, 2.1)
 	world_node.add_child(orb)
 	heal_orbs.append(orb)
 
@@ -2161,6 +3842,14 @@ func _process_heal_orbs():
 		if not is_instance_valid(orb):
 			heal_orbs.erase(orb)
 			continue
+		var core := orb.get_node_or_null("OrbCore") as Node2D
+		var aura := orb.get_node_or_null("OrbAura") as Node2D
+		if core:
+			core.position.y = sin(run_elapsed_time * 4.0) * 3.5 - 4.0
+		if aura:
+			var asc := 1.0 + 0.10 * sin(run_elapsed_time * 3.2)
+			aura.scale = Vector2(asc, asc)
+			aura.position.y = core.position.y if core else 0.0
 		var pickup_dist := 160.0 if active_boons.has("jade_magnet") else 48.0
 		if player.global_position.distance_to(orb.global_position) < pickup_dist:
 			var max_hp := _get_hero_stat(active_hero_id, "max_hp")
@@ -2180,6 +3869,9 @@ func _process_heal_orbs():
 func _spawn_ghost_afterimage():
 	var g := Sprite2D.new()
 	g.texture = player_sprite.texture
+	g.hframes = player_sprite.hframes
+	g.vframes = player_sprite.vframes
+	g.frame = player_sprite.frame
 	g.flip_h = player_sprite.flip_h
 	g.scale = HERO_SCALE
 	g.offset = HERO_OFFSET
@@ -2193,30 +3885,80 @@ func _spawn_ghost_afterimage():
 
 
 func _spawn_floating_text(pos: Vector2, text_val: String, col: Color, is_big: bool):
+	if not is_instance_valid(fx_layer):
+		return
+	# Prune expired floating labels and recycle oldest if > 10 so rapid combos never clutter the arena
+	for fl in active_float_labels.duplicate():
+		if not is_instance_valid(fl):
+			active_float_labels.erase(fl)
+	if active_float_labels.size() >= 10:
+		var oldest: Node = active_float_labels.pop_front()
+		if is_instance_valid(oldest):
+			oldest.queue_free()
+
+	# Staircase fan around upper flank so numbers never stack on top of each other or cover feet/telegraphs
+	var fan_offsets := [
+		Vector2(-28.0, -64.0),
+		Vector2(22.0, -70.0),
+		Vector2(-38.0, -84.0),
+		Vector2(30.0, -88.0),
+		Vector2(-4.0, -100.0),
+	]
+	var slot_ofs: Vector2 = fan_offsets[float_slot_cursor % fan_offsets.size()]
+	float_slot_cursor = (float_slot_cursor + 1) % fan_offsets.size()
+
 	var lbl := Label.new()
 	lbl.text = text_val
-	lbl.position = pos + Vector2(randf_range(-16, 16), 0)
-	lbl.add_theme_font_size_override("font_size", 24 if is_big else 16)
-	lbl.add_theme_color_override("font_color", Color("#fde047") if is_big else col)
-	lbl.add_theme_color_override("font_outline_color", Color.BLACK)
-	lbl.add_theme_constant_override("outline_size", 4)
+	lbl.position = pos + slot_ofs
+	lbl.z_index = 9
+	lbl.add_theme_font_size_override("font_size", 20 if is_big else 14)
+	lbl.add_theme_color_override("font_color", col)
+	lbl.add_theme_color_override("font_outline_color", Color(0.04, 0.06, 0.10, 0.96))
+	lbl.add_theme_constant_override("outline_size", 4 if is_big else 3)
 	fx_layer.add_child(lbl)
-	var tw := create_tween()
-	tw.tween_property(lbl, "position:y", lbl.position.y - 36.0, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tw.parallel().tween_property(lbl, "modulate:a", 0.0, 0.55)
-	tw.tween_callback(lbl.queue_free)
+	active_float_labels.append(lbl)
+	if is_big:
+		lbl.scale = Vector2(1.22, 1.22)
+	var tw := lbl.create_tween()
+	if is_big:
+		tw.tween_property(lbl, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(lbl, "position:y", lbl.position.y - 26.0, 0.46).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(lbl, "modulate:a", 0.0, 0.46)
+	tw.tween_callback(func():
+		active_float_labels.erase(lbl)
+		lbl.queue_free()
+	)
+
+
+func _get_shake_scale() -> float:
+	var sm := str(save_data.get("shake_mode", "normal"))
+	if sm == "off":
+		return 0.0
+	elif sm == "low":
+		return 0.35
+	return 1.0
 
 
 func _process_camera_shake(delta: float):
-	if shake_strength > 0.1:
-		camera.offset = Vector2(randf_range(-shake_strength, shake_strength), randf_range(-shake_strength, shake_strength))
-		shake_strength = lerpf(shake_strength, 0.0, 12.0 * delta)
+	var s_scale := _get_shake_scale()
+	if shake_strength > 0.1 and s_scale > 0.01:
+		var eff := minf(shake_strength * s_scale, 9.0)
+		camera.offset = Vector2(randf_range(-eff, eff), randf_range(-eff, eff))
+		shake_strength = lerpf(shake_strength, 0.0, 14.0 * delta)
 	else:
+		shake_strength = move_toward(shake_strength, 0.0, 24.0 * delta)
 		camera.offset = Vector2.ZERO
 
 
 func _show_banner(msg: String, duration: float):
 	banner_label.text = msg
+	if banner_panel:
+		if tutorial_panel != null and tutorial_panel.visible:
+			banner_panel.position.y = 178.0
+		elif boss_panel != null and boss_panel.visible:
+			banner_panel.position.y = 112.0
+		else:
+			banner_panel.position.y = 72.0
 	banner_panel.visible = true
 	var tw := create_tween()
 	tw.tween_interval(duration)
@@ -2235,29 +3977,66 @@ func _refresh_hud():
 	sp_bar.value = hero_sp[active_hero_id]
 	sp_label.text = "ปราณ %d / %d" % [int(hero_sp[active_hero_id]), msp]
 
+	var nearest_marked: CharacterBody2D = _get_nearest_enemy(520.0)
+	var marked_elem := ""
+	if nearest_marked != null and float(nearest_marked.get_meta("elem_timer", 0.0)) > 0.0:
+		marked_elem = str(nearest_marked.get_meta("elem_mark", ""))
+
 	for hid in active_party:
 		if not hero_cards.has(hid):
 			continue
 		var card: PanelContainer = hero_cards[hid]
+		var r_ready: bool = float(hero_sp.get(hid, 0.0)) >= 35.0 and hero_hp[hid] > 0.0
+		var hero_elem := CombatSystem.get_hero_element(hid)
+		var can_react: bool = hid != active_hero_id and hero_hp[hid] > 0.0 and not marked_elem.is_empty() and marked_elem != hero_elem and not CombatSystem.lookup_reaction(marked_elem, hero_elem).is_empty()
 		var sb := StyleBoxFlat.new()
 		sb.bg_color = Color(0.08, 0.11, 0.16, 0.9)
-		sb.border_color = Color("#fde047") if hid == active_hero_id else Color(0.3, 0.35, 0.45, 0.6)
-		sb.set_border_width_all(3 if hid == active_hero_id else 1)
+		if hid == active_hero_id:
+			sb.border_color = Color("#fde047")
+			sb.set_border_width_all(3)
+		elif can_react:
+			sb.border_color = Color("#38bdf8")
+			sb.set_border_width_all(2)
+		elif r_ready:
+			sb.border_color = Color("#f59e0b")
+			sb.set_border_width_all(2)
+		else:
+			sb.border_color = Color(0.3, 0.35, 0.45, 0.6)
+			sb.set_border_width_all(1)
 		sb.set_corner_radius_all(8)
 		card.add_theme_stylebox_override("panel", sb)
 		card.modulate = Color(0.35, 0.35, 0.35, 0.7) if hero_hp[hid] <= 0.0 else Color.WHITE
+		if card.has_node("SwapStatusBadge"):
+			var badge: Label = card.get_node("SwapStatusBadge")
+			if can_react:
+				badge.text = "⚡"
+				badge.add_theme_color_override("font_color", Color("#38bdf8"))
+				badge.visible = true
+			elif r_ready and hid != active_hero_id:
+				badge.text = "R!"
+				badge.add_theme_color_override("font_color", Color("#fde047"))
+				badge.visible = true
+			else:
+				badge.visible = false
 
 	q_title_lbl.text = "[Q] " + data["q_name"]
 	e_title_lbl.text = "[E] " + data["e_name"]
 	r_title_lbl.text = "[R] " + data["r_name"]
 
-	q_val_lbl.text = ("%.1fs" % q_cd) if q_cd > 0.0 else "พร้อมใช้"
-	e_val_lbl.text = ("%.1fs" % e_cd) if e_cd > 0.0 else "พร้อมใช้"
-	r_val_lbl.text = ("%.1fs" % r_cd) if r_cd > 0.0 else "พร้อมใช้"
-	dash_val_lbl.text = ("%.1fs" % dash_cooldown) if dash_cooldown > 0.0 else "พร้อมใช้"
-	auto_val_lbl.text = "ออโต้: ON" if auto_attack_enabled else "ออโต้: OFF"
+	var cur_sp := int(hero_sp[active_hero_id])
+	var qc := int(data["q_cost"])
+	var ec := int(data["e_cost"])
+	var rc := int(data["r_cost"])
+	q_val_lbl.text = ("⏳ %.1fs" % q_cd) if q_cd > 0.0 else (("💧 %d/%d ปราณ" % [cur_sp, qc]) if cur_sp < qc else ("พร้อมใช้ (%d)" % qc))
+	e_val_lbl.text = ("⏳ %.1fs" % e_cd) if e_cd > 0.0 else (("💧 %d/%d ปราณ" % [cur_sp, ec]) if cur_sp < ec else ("พร้อมใช้ (%d)" % ec))
+	r_val_lbl.text = ("⏳ %.1fs" % r_cd) if r_cd > 0.0 else (("💧 %d/%d ปราณ" % [cur_sp, rc]) if cur_sp < rc else ("พร้อมใช้ (%d)" % rc))
+	dash_val_lbl.text = ("⏳ %.1fs" % dash_cooldown) if dash_cooldown > 0.0 else "พร้อมใช้"
+	auto_val_lbl.text = "ออโต้: ON (คลิกสลับ)" if auto_attack_enabled else "ออโต้: OFF (คลิกสลับ)"
 	if mobile_controls:
-		mobile_controls.update_state(data, q_cd, e_cd, r_cd, dash_cooldown, float(hero_sp[active_hero_id]), auto_attack_enabled)
+		mobile_controls.update_state(data, q_cd, e_cd, r_cd, dash_cooldown, float(hero_sp[active_hero_id]), auto_attack_enabled, game_speed_mult)
+	if speed_btn:
+		speed_btn.text = "⏩ 1.5×" if game_speed_mult >= 1.25 else "⏩ 1.0×"
+		speed_btn.add_theme_color_override("font_color", Color("#fbbf24") if game_speed_mult >= 1.25 else Color.WHITE)
 	if jade_label:
 		jade_label.text = "💎 หยกปราณ: %d" % int(save_data.get("spirit_jade", 0))
 	if diff_btn:
@@ -2282,8 +4061,15 @@ func _trigger_victory():
 		cleared.append(chapter)
 		save_data["cleared_chapters"] = cleared
 		first_clear_bonus = 50
+		run_jade_earned += first_clear_bonus
 		save_data["spirit_jade"] = int(save_data.get("spirit_jade", 0)) + first_clear_bonus
 		SaveManager.save_data(save_data, save_path)
+	if chapter >= 1:
+		_record_achievement("clear_ch1", 1, true)
+	if chapter >= 5:
+		_record_achievement("clear_ch5", 1, true)
+	if chapter >= 10:
+		_record_achievement("clear_ch10", 1, true)
 
 	if boss_rush_mode and chapter < ChapterData.TOTAL_CHAPTERS:
 		_award_spirit_jade(40)
@@ -2313,66 +4099,273 @@ func _trigger_victory():
 		end_title.text = "👑 พิชิตครบทั้ง 10 บท 100 ชั้น! ผนึกกระบี่สะบั้นสวรรค์สำเร็จ!%s" % bonus_txt
 		restart_btn.text = "🔄 เริ่มวัฏจักรใหม่ บทที่ 1 [Enter]"
 	end_title.add_theme_color_override("font_color", Color("#fde047"))
+	Engine.time_scale = 1.0
+	if replay_btn:
+		replay_btn.visible = true
+	_populate_battle_summary(true)
+	end_input_guard_timer = 0.85
+	_prev_enter_end = true
+	if restart_btn:
+		# Do NOT grab_focus() so Spacebar (Dash) or skill taps on Floor 100 never skip the summary!
+		restart_btn.focus_mode = Control.FOCUS_NONE
+		restart_btn.disabled = true
 	end_overlay.visible = true
 
 
 func _trigger_defeat():
 	game_over = true
+	Engine.time_scale = 1.0
 	end_title.text = "💀 เหล่าผู้กล้าพ่ายแพ้"
 	restart_btn.text = "🔄 ลองใหม่อีกครั้ง [Enter]"
 	end_title.add_theme_color_override("font_color", Color("#f87171"))
+	if replay_btn:
+		replay_btn.visible = false
+	_populate_battle_summary(false)
+	end_input_guard_timer = 0.65
+	_prev_enter_end = true
+	if restart_btn:
+		restart_btn.focus_mode = Control.FOCUS_NONE
+		restart_btn.disabled = true
 	end_overlay.visible = true
 
 
 func _on_end_action_pressed():
+	Engine.time_scale = 1.0
+	Globals.set_meta("auto_attack", auto_attack_enabled)
 	if victory:
 		var nxt := (chapter + 1) if chapter < ChapterData.TOTAL_CHAPTERS else 1
 		Globals.set_meta("chapter", nxt)
 	get_tree().reload_current_scene()
 
 
-func _start_slam_telegraph(e: CharacterBody2D, radius: float, dmg: int, windup: float):
-	e.set_meta("casting", windup + 0.15)
-	sfx.play_sfx("boss_warn")
-	var target_pos: Vector2 = player.global_position if e.get_meta("kind") == "boss" else e.global_position
+func _replay_current_chapter():
+	Engine.time_scale = 1.0
+	Globals.set_meta("auto_attack", auto_attack_enabled)
+	Globals.set_meta("chapter", chapter)
+	get_tree().reload_current_scene()
+
+
+func _toggle_auto_attack():
+	auto_attack_enabled = not auto_attack_enabled
+	save_data["auto_attack"] = auto_attack_enabled
+	Globals.set_meta("auto_attack", auto_attack_enabled)
+	SaveManager.save_data(save_data, save_path)
+	_show_banner("โหมดตีอัตโนมัติ: %s" % ("เปิด (ON)" if auto_attack_enabled else "ปิด (OFF)"), 1.2)
+	_refresh_hud()
+
+
+func _refresh_fx_and_shake_btns():
+	var fx_red := bool(save_data.get("fx_reduced", false))
+	VfxStudio.set_fx_reduced(fx_red)
+	if codex_fx_btn:
+		codex_fx_btn.text = "✨ เอฟเฟกต์: ลดแสง" if fx_red else "✨ เอฟเฟกต์: ปกติ"
+		codex_fx_btn.add_theme_color_override("font_color", Color("#5eead4") if fx_red else Color("#e2e8f0"))
+	var sm := str(save_data.get("shake_mode", "normal"))
+	if codex_shake_btn:
+		var slbl := "ปกติ" if sm == "normal" else ("เบา" if sm == "low" else "ปิด")
+		codex_shake_btn.text = "📳 สั่นจอ: %s" % slbl
+		codex_shake_btn.add_theme_color_override("font_color", Color("#fde047") if sm != "normal" else Color("#e2e8f0"))
+
+
+func _toggle_fx_reduced():
+	var next_v := not bool(save_data.get("fx_reduced", false))
+	save_data["fx_reduced"] = next_v
+	SaveManager.save_data(save_data, save_path)
+	_refresh_fx_and_shake_btns()
+	_show_banner("✨ ความเข้มเอฟเฟกต์: %s" % ("โหมดลดแสง (อ่านสนามชัด + ประหยัดเครื่อง)" if next_v else "ปกติ"), 1.6)
+
+
+func _toggle_shake_mode():
+	var order := ["normal", "low", "off"]
+	var cur := str(save_data.get("shake_mode", "normal"))
+	var idx := (order.find(cur) + 1) % order.size()
+	var nxt: String = order[idx]
+	save_data["shake_mode"] = nxt
+	SaveManager.save_data(save_data, save_path)
+	_refresh_fx_and_shake_btns()
+	var desc := "ปกติ (100%)" if nxt == "normal" else ("ลดการสั่น (35%)" if nxt == "low" else "ปิดการสั่น (0%)")
+	_show_banner("📳 การสั่นหน้าจอ: %s" % desc, 1.5)
+
+
+func _return_to_hub():
+	Engine.time_scale = 1.0
+	end_overlay.visible = false
+	_open_codex_tab(0)
+
+
+func _attach_boss_phase2_aura(e: CharacterBody2D):
+	if not is_instance_valid(e) or e.has_node("Phase2Aura"):
+		return
+	var aura := Node2D.new()
+	aura.name = "Phase2Aura"
+	aura.position = Vector2(0.0, -56.0)
+	aura.z_index = -1
+	var outer_r := Line2D.new()
+	var pts1 := VfxStudio._make_star_poly(88.0, 56.0, 10)
+	pts1.append(pts1[0])
+	outer_r.points = pts1
+	outer_r.width = 3.2
+	outer_r.default_color = Color(1.0, 0.34, 0.14, 0.85)
+	aura.add_child(outer_r)
+	var inner_r := Line2D.new()
+	var pts2 := VfxStudio._make_star_poly(66.0, 42.0, 8)
+	pts2.append(pts2[0])
+	inner_r.points = pts2
+	inner_r.width = 2.4
+	inner_r.default_color = Color(0.24, 0.92, 0.88, 0.78)
+	aura.add_child(inner_r)
+	e.add_child(aura)
+
+
+func _free_telegraph_nodes(tinfo: Dictionary):
+	if tinfo.has("node") and is_instance_valid(tinfo["node"]):
+		(tinfo["node"] as Node).queue_free()
+	if tinfo.has("nodes") and typeof(tinfo["nodes"]) == TYPE_ARRAY:
+		for n in tinfo["nodes"]:
+			if is_instance_valid(n):
+				(n as Node).queue_free()
+
+
+func _cancel_telegraphs_for(caster: Object):
+	for t in active_telegraphs.duplicate():
+		if typeof(t) == TYPE_DICTIONARY and t.get("caster") == caster:
+			_free_telegraph_nodes(t)
+			active_telegraphs.erase(t)
+
+
+func _clear_all_telegraphs():
+	for t in active_telegraphs.duplicate():
+		if typeof(t) == TYPE_DICTIONARY:
+			_free_telegraph_nodes(t)
+	active_telegraphs.clear()
+
+
+func _make_danger_zone_visual(target_pos: Vector2, radius: float, y_aspect: float = 0.72) -> Dictionary:
+	# Floor fill stays beneath character sprites while crisp bright rim stays readable above spell clutter
+	var root_n := Node2D.new()
+	root_n.position = target_pos
+	root_n.z_index = 6
+	floor_layer.add_child(root_n)
 
 	var outer := Polygon2D.new()
-	outer.polygon = _make_ellipse(radius, radius * 0.72, 28)
-	outer.color = Color(0.95, 0.18, 0.25, 0.22)
-	outer.position = target_pos
-	outer.z_index = -4
-	add_child(outer)
+	outer.polygon = _make_ellipse(radius, radius * y_aspect, 32)
+	outer.color = Color(0.95, 0.16, 0.22, 0.16)
+	root_n.add_child(outer)
 
 	var inner := Polygon2D.new()
-	inner.polygon = _make_ellipse(radius, radius * 0.72, 28)
-	inner.color = Color(0.98, 0.22, 0.30, 0.50)
+	inner.polygon = _make_ellipse(radius, radius * y_aspect, 32)
+	inner.color = Color(0.98, 0.24, 0.28, 0.34)
 	inner.scale = Vector2(0.05, 0.05)
-	outer.add_child(inner)
+	root_n.add_child(inner)
 
-	var tinfo := {"pos": target_pos, "radius": radius}
+	var rim := Line2D.new()
+	var rpts := _make_ellipse(radius, radius * y_aspect, 36)
+	rpts.append(rpts[0])
+	rim.points = rpts
+	rim.width = 2.8
+	rim.default_color = Color(1.0, 0.38, 0.28, 0.92)
+	root_n.add_child(rim)
+	return {"root": root_n, "inner": inner, "rim": rim}
+
+
+func _process_telegraphs(delta: float):
+	for t in active_telegraphs.duplicate():
+		if typeof(t) != TYPE_DICTIONARY or not t.has("type"):
+			continue
+		var caster_v: Variant = t.get("caster", null)
+		var req_caster: bool = bool(t.get("require_caster", true))
+		if req_caster:
+			if not is_instance_valid(caster_v) or bool((caster_v as Object).get_meta("is_dead", false)):
+				_free_telegraph_nodes(t)
+				active_telegraphs.erase(t)
+				continue
+		var elapsed := float(t.get("elapsed", 0.0)) + delta
+		var dur := maxf(float(t.get("duration", 0.5)), 0.05)
+		t["elapsed"] = elapsed
+		var prog := clampf(elapsed / dur, 0.0, 1.0)
+		var ttype := str(t["type"])
+		if ttype == "slam" or ttype == "hazard_ring":
+			if t.has("inner") and is_instance_valid(t["inner"]):
+				(t["inner"] as Node2D).scale = Vector2(lerpf(0.08, 1.0, prog), lerpf(0.08, 1.0, prog))
+		elif ttype == "furnace_pillars":
+			if t.has("inners"):
+				for in_n in t["inners"]:
+					if is_instance_valid(in_n):
+						(in_n as Node2D).scale = Vector2(lerpf(0.08, 1.0, prog), lerpf(0.08, 1.0, prog))
+		elif ttype == "wave_fan" or ttype == "laser":
+			if t.has("node") and is_instance_valid(t["node"]):
+				(t["node"] as CanvasItem).modulate.a = lerpf(0.45, 1.0, prog)
+
+		if elapsed >= dur:
+			active_telegraphs.erase(t)
+			if ttype == "slam":
+				_execute_slam(caster_v, t["pos"], float(t["radius"]), int(t["dmg"]), t.get("node"), {})
+			elif ttype == "wave_fan":
+				_free_telegraph_nodes(t)
+				_fire_boss_waves(caster_v, t["dir"])
+			elif ttype == "furnace_pillars":
+				_execute_furnace_pillars(caster_v, t["centers"], float(t["pillar_radius"]), int(t["dmg"]), t)
+			elif ttype == "laser":
+				_fire_laser_beam(caster_v, t["dir"], t.get("node"))
+			elif ttype == "eight_dir_storm":
+				_execute_eight_dir_storm(caster_v, t["center"], t.get("node"))
+			elif ttype == "hazard_ring":
+				_free_telegraph_nodes(t)
+				if not game_over and not victory:
+					var hpos: Vector2 = t["pos"]
+					var hrad: float = float(t["radius"])
+					var hcol: Color = t["col"]
+					_spawn_ring_vfx(hpos, hcol, hrad + 4.0)
+					if player.global_position.distance_to(hpos) <= hrad and invuln_timer <= 0.0:
+						_enemy_hit_player(16, hpos, false)
+
+
+func _start_slam_telegraph(e: CharacterBody2D, radius: float, dmg: int, windup: float):
+	e.set_meta("cast_pose", "slam")
+	e.set_meta("casting", windup)
+	sfx.play_sfx("boss_warn")
+	var target_pos: Vector2 = player.global_position if bool(MONSTER_DEFS.get(str(e.get_meta("kind")), {}).get("is_boss", false)) else e.global_position
+	var vis := _make_danger_zone_visual(target_pos, radius, 0.72)
+	var tinfo := {
+		"type": "slam",
+		"caster": e,
+		"require_caster": true,
+		"pos": target_pos,
+		"radius": radius,
+		"dmg": dmg,
+		"elapsed": 0.0,
+		"duration": windup,
+		"node": vis["root"],
+		"inner": vis["inner"],
+	}
 	active_telegraphs.append(tinfo)
 
-	var tw := create_tween()
-	tw.tween_property(inner, "scale", Vector2(1.0, 1.0), windup)
-	tw.tween_callback(_execute_slam.bind(e, target_pos, radius, dmg, outer, tinfo))
 
-
-func _execute_slam(e: Variant, pos: Vector2, radius: float, dmg: int, warn_node: Node2D, tinfo: Dictionary = {}):
+func _execute_slam(e: Variant, pos: Vector2, radius: float, dmg: int, warn_node: Variant, tinfo: Dictionary = {}):
 	if not tinfo.is_empty():
 		active_telegraphs.erase(tinfo)
 	if is_instance_valid(warn_node):
-		warn_node.queue_free()
-	if not is_instance_valid(e) or game_over or victory:
+		(warn_node as Node).queue_free()
+	if not is_instance_valid(e) or bool((e as Object).get_meta("is_dead", false)) or game_over or victory:
 		return
+	var eb := e as CharacterBody2D
+	eb.set_meta("casting", 0.0)
+	eb.set_meta("attack_pose_timer", 0.24)
+	eb.set_meta("recovery_timer", 0.85 if bool(MONSTER_DEFS.get(str(eb.get_meta("kind")), {}).get("is_boss", false)) else 0.65)
 	sfx.play_sfx("boss_slam")
 	shake_strength = 13.5
 	var cdata := ChapterData.get_chapter(chapter)
-	VfxStudio.spawn_critical_star_burst(fx_layer, pos, cdata["light_color"], 1.35)
+	VfxStudio.spawn_critical_star_burst(fx_layer, pos, cdata["light_color"], 1.25)
 	_spawn_ring_vfx(pos, Color("#f43f5e"), radius)
-	_spawn_burst_vfx(pos, "res://assets/vfx/vfx_firaga.png", 1.3)
+	_spawn_burst_vfx(pos, "res://assets/vfx/vfx_firaga.png", 1.2)
 
-	if player.global_position.distance_to(pos) <= radius:
-		if invuln_timer > 0.0:
+	# Visual hit radius matches exact 1:1 ellipse/circle radius shown on telegraph
+	var d_vec := player.global_position - pos
+	var norm_ell := Vector2(d_vec.x / maxf(radius, 1.0), d_vec.y / maxf(radius * 0.72, 1.0)).length()
+	if norm_ell <= 1.0:
+		if combat.can_trigger_perfect_dodge():
+			_activate_perfect_dodge()
+		elif invuln_timer > 0.0:
 			sfx.play_sfx("dodge")
 			_award_spirit_jade(4)
 			_spawn_floating_text(player.global_position + Vector2(0, -56), "⚡ หลบพ้น! +4 💎", Color("#2dd4bf"), true)
@@ -2381,31 +4374,141 @@ func _execute_slam(e: Variant, pos: Vector2, radius: float, dmg: int, warn_node:
 
 
 func _start_boss_wave_attack(e: CharacterBody2D, dir: Vector2):
-	e.set_meta("casting", 0.65)
+	var clean_dir := dir.normalized() if dir.length() > 0.05 else Vector2.LEFT
+	var is_p2 := bool(e.get_meta("phase2_done", false))
+	var windup := 0.56 if is_p2 else 0.68
+	e.set_meta("cast_pose", "wave")
+	e.set_meta("casting", windup)
 	sfx.play_sfx("boss_warn")
-	var tw := create_tween()
-	tw.tween_interval(0.50)
-	tw.tween_callback(_fire_boss_waves.bind(e, dir))
+
+	var angles := [-0.46, -0.23, 0.0, 0.23, 0.46] if (e.get_meta("kind") == "boss_ch2" or is_p2) else [-0.28, 0.0, 0.28]
+	var lane_root := Node2D.new()
+	lane_root.z_index = 6
+	floor_layer.add_child(lane_root)
+	for ang in angles:
+		var ld := clean_dir.rotated(ang)
+		var ln := Line2D.new()
+		ln.points = PackedVector2Array([e.global_position + ld * 30.0, e.global_position + ld * 430.0])
+		ln.width = 16.0
+		ln.default_color = Color(1.0, 0.32, 0.20, 0.22)
+		lane_root.add_child(ln)
+		var core_ln := Line2D.new()
+		core_ln.points = ln.points
+		core_ln.width = 2.5
+		core_ln.default_color = Color(1.0, 0.68, 0.30, 0.82)
+		lane_root.add_child(core_ln)
+
+	active_telegraphs.append({
+		"type": "wave_fan",
+		"caster": e,
+		"require_caster": true,
+		"pos": e.global_position + clean_dir * 140.0,
+		"radius": 135.0,
+		"dir": clean_dir,
+		"elapsed": 0.0,
+		"duration": windup,
+		"node": lane_root,
+	})
 
 
 func _fire_boss_waves(e: Variant, dir: Vector2):
-	if not is_instance_valid(e) or game_over or victory:
+	if not is_instance_valid(e) or bool((e as Object).get_meta("is_dead", false)) or game_over or victory:
 		return
+	var eb := e as CharacterBody2D
+	eb.set_meta("casting", 0.0)
+	eb.set_meta("attack_pose_timer", 0.24)
+	eb.set_meta("recovery_timer", 0.72)
 	sfx.play_sfx("boss_slam")
-	var angles := [-0.45, -0.22, 0.0, 0.22, 0.45] if e.get_meta("kind") == "boss_ch2" else [-0.30, 0.0, 0.30]
+	var is_p2 := bool(eb.get_meta("phase2_done", false))
+	var angles := [-0.46, -0.23, 0.0, 0.23, 0.46] if (eb.get_meta("kind") == "boss_ch2" or is_p2) else [-0.28, 0.0, 0.28]
 	for ang in angles:
 		var d := dir.rotated(ang)
 		var p := Sprite2D.new()
 		p.texture = load("res://assets/vfx/vfx_whip_blood_chain.png")
-		p.position = e.global_position + d * 36.0
+		p.position = eb.global_position + d * 36.0
 		p.rotation = d.angle()
 		p.scale = Vector2(0.85, 0.85)
-		p.modulate = Color("#f43f5e")
-		p.set_meta("vel", d * 390.0)
-		p.set_meta("dmg", 22)
-		p.set_meta("life", 1.6)
+		p.modulate = Color("#fb7185") if not is_p2 else Color("#fb923c")
+		p.set_meta("vel", d * (420.0 if is_p2 else 380.0))
+		p.set_meta("dmg", 24 if is_p2 else 22)
+		p.set_meta("life", 1.55)
 		fx_layer.add_child(p)
 		enemy_projectiles.append(p)
+
+
+func _start_furnace_pillars(e: CharacterBody2D, is_p2: bool):
+	# Pattern 3 of Furnace Guardian: Multi-pillar Soul-Furnace Eruption followed by Overheat Counter Window!
+	var windup := 0.78 if is_p2 else 0.95
+	var p_rad := 84.0
+	e.set_meta("cast_pose", "slam")
+	e.set_meta("casting", windup)
+	sfx.play_sfx("boss_warn")
+
+	var cnt := 6 if is_p2 else 4
+	var base_center := player.global_position
+	var room_min_x := float(current_room * ROOM_STRIDE + 2) * TILE_SIZE
+	var room_max_x := float(current_room * ROOM_STRIDE + 14) * TILE_SIZE
+	var centers: Array[Vector2] = []
+	var nodes: Array = []
+	var inners: Array = []
+	for i in range(cnt):
+		var a := (float(i) / float(cnt)) * TAU + (0.35 if is_p2 else 0.0)
+		var ring_d := 118.0 if (i % 2 == 0) else 165.0
+		var cpos := base_center + Vector2(cos(a) * ring_d, sin(a) * ring_d * 0.68)
+		cpos.x = clampf(cpos.x, room_min_x, room_max_x)
+		cpos.y = clampf(cpos.y, 2.1 * TILE_SIZE, 6.9 * TILE_SIZE)
+		centers.append(cpos)
+		var vis := _make_danger_zone_visual(cpos, p_rad, 0.72)
+		nodes.append(vis["root"])
+		inners.append(vis["inner"])
+
+	active_telegraphs.append({
+		"type": "furnace_pillars",
+		"caster": e,
+		"require_caster": true,
+		"pos": base_center,
+		"radius": 180.0,
+		"centers": centers,
+		"pillar_radius": p_rad,
+		"dmg": 32 if is_p2 else 28,
+		"elapsed": 0.0,
+		"duration": windup,
+		"nodes": nodes,
+		"inners": inners,
+	})
+
+
+func _execute_furnace_pillars(e: Variant, centers: Array, p_rad: float, dmg: int, tinfo: Dictionary):
+	_free_telegraph_nodes(tinfo)
+	if not is_instance_valid(e) or bool((e as Object).get_meta("is_dead", false)) or game_over or victory:
+		return
+	var eb := e as CharacterBody2D
+	eb.set_meta("casting", 0.0)
+	eb.set_meta("attack_pose_timer", 0.26)
+	# Reward dodging Pattern 3 with a generous 1.55s Overheat Vulnerable Counter Window (+25% dmg taken)!
+	eb.set_meta("recovery_timer", 1.55)
+	eb.set_meta("vuln_open", 1.55)
+	sfx.play_sfx("boss_slam")
+	shake_strength = 12.0
+	var hit_player := false
+	for cpos_v in centers:
+		var cpos: Vector2 = cpos_v
+		_spawn_ring_vfx(cpos, Color("#fb923c"), p_rad)
+		_spawn_burst_vfx(cpos, "res://assets/vfx/vfx_firaga.png", 0.92)
+		var dv := player.global_position - cpos
+		var nell := Vector2(dv.x / p_rad, dv.y / (p_rad * 0.72)).length()
+		if nell <= 1.0:
+			hit_player = true
+	if hit_player:
+		if combat.can_trigger_perfect_dodge():
+			_activate_perfect_dodge()
+		elif invuln_timer > 0.0:
+			sfx.play_sfx("dodge")
+			_award_spirit_jade(4)
+			_spawn_floating_text(player.global_position + Vector2(0, -56), "⚡ หลบเสาเพลิงพ้น! +4 💎", Color("#2dd4bf"), true)
+		else:
+			_enemy_hit_player(dmg, eb.global_position, true)
+	_spawn_floating_text(eb.global_position + Vector2(0, -110), "⚡ เตาหลอมคลายความร้อน — สวนกลับ!", Color("#5eead4"), true)
 
 
 func _process_enemy_projectiles(delta: float):
@@ -2527,47 +4630,103 @@ func _spawn_orbit_blades(center: Vector2):
 
 
 func _start_laser_telegraph(e: CharacterBody2D, dir: Vector2):
-	e.set_meta("casting", 0.95)
+	var clean_dir := dir.normalized() if dir.length() > 0.05 else Vector2.LEFT
+	e.set_meta("cast_pose", "wave")
+	e.set_meta("casting", 0.80)
 	sfx.play_sfx("laser_warn")
 	var line := Line2D.new()
-	line.points = PackedVector2Array([e.global_position, e.global_position + dir * 520.0])
-	line.width = 6.0
-	line.default_color = Color(1.0, 0.2, 0.25, 0.7)
-	fx_layer.add_child(line)
-	var tw := create_tween()
-	tw.tween_interval(0.80)
-	tw.tween_callback(_fire_laser_beam.bind(e, dir, line))
+	line.points = PackedVector2Array([e.global_position, e.global_position + clean_dir * 520.0])
+	line.width = 8.0
+	line.default_color = Color(1.0, 0.24, 0.28, 0.78)
+	line.z_index = 7
+	floor_layer.add_child(line)
+	active_telegraphs.append({
+		"type": "laser",
+		"caster": e,
+		"require_caster": true,
+		"pos": e.global_position + clean_dir * 160.0,
+		"radius": 140.0,
+		"dir": clean_dir,
+		"elapsed": 0.0,
+		"duration": 0.80,
+		"node": line,
+	})
 
 
-func _fire_laser_beam(e: Variant, dir: Vector2, line: Line2D):
+func _fire_laser_beam(e: Variant, dir: Vector2, line: Variant):
 	if is_instance_valid(line):
-		line.queue_free()
-	if not is_instance_valid(e) or game_over or victory:
+		(line as Node).queue_free()
+	if not is_instance_valid(e) or bool((e as Object).get_meta("is_dead", false)) or game_over or victory:
 		return
+	var eb := e as CharacterBody2D
+	eb.set_meta("casting", 0.0)
+	eb.set_meta("attack_pose_timer", 0.22)
+	eb.set_meta("recovery_timer", 0.70)
 	sfx.play_sfx("boss_slam")
 	for ang in [-0.14, 0.0, 0.14]:
-		_spawn_enemy_orb(e.global_position, dir.rotated(ang), 24)
+		_spawn_enemy_orb(eb.global_position, dir.rotated(ang), 24)
 
 
 func _start_eight_dir_storm(e: CharacterBody2D):
-	e.set_meta("casting", 1.25)
+	e.set_meta("cast_pose", "slam")
+	e.set_meta("casting", 1.10)
 	sfx.play_sfx("boss_warn")
 	var center := Vector2((7.5 + float(current_room * ROOM_STRIDE)) * TILE_SIZE, 4.5 * TILE_SIZE)
-	var danger := Polygon2D.new()
-	danger.polygon = _make_ellipse(360.0, 230.0, 32)
-	danger.color = Color(0.95, 0.16, 0.24, 0.25)
+	var danger := Node2D.new()
 	danger.position = center
-	danger.z_index = -5
-	add_child(danger)
+	danger.z_index = 6
+	floor_layer.add_child(danger)
+
+	var outer_rim := Line2D.new()
+	var opts := _make_ellipse(340.0, 215.0, 36)
+	opts.append(opts[0])
+	outer_rim.points = opts
+	outer_rim.width = 3.0
+	outer_rim.default_color = Color(0.98, 0.26, 0.32, 0.78)
+	danger.add_child(outer_rim)
+
+	for spoke_i in range(8):
+		var sang := (float(spoke_i) / 8.0) * TAU
+		var sdir := Vector2(cos(sang), sin(sang))
+		var spoke := Line2D.new()
+		spoke.points = PackedVector2Array([sdir * 98.0, sdir * 230.0])
+		spoke.width = 12.0
+		spoke.default_color = Color(0.96, 0.22, 0.28, 0.28)
+		danger.add_child(spoke)
 
 	var safe := Polygon2D.new()
-	safe.polygon = _make_ellipse(92.0, 68.0, 24)
-	safe.color = Color(0.22, 0.90, 0.45, 0.35)
+	safe.polygon = _make_ellipse(96.0, 96.0, 28)
+	safe.color = Color(0.14, 0.88, 0.52, 0.26)
 	danger.add_child(safe)
 
-	var tw := create_tween()
-	tw.tween_interval(1.10)
-	tw.tween_callback(_execute_eight_dir_storm.bind(e, center, danger))
+	var safe_rim := Line2D.new()
+	var spts := _make_ellipse(96.0, 96.0, 32)
+	spts.append(spts[0])
+	safe_rim.points = spts
+	safe_rim.width = 3.0
+	safe_rim.default_color = Color(0.35, 0.98, 0.62, 0.95)
+	danger.add_child(safe_rim)
+
+	var safe_lbl := Label.new()
+	safe_lbl.text = "🟢 เขตปลอดภัย!"
+	safe_lbl.position = Vector2(-58.0, -12.0)
+	safe_lbl.add_theme_font_size_override("font_size", 14)
+	safe_lbl.add_theme_color_override("font_color", Color("#a7f3d0"))
+	safe_lbl.add_theme_color_override("font_outline_color", Color(0.02, 0.08, 0.06, 0.96))
+	safe_lbl.add_theme_constant_override("outline_size", 4)
+	danger.add_child(safe_lbl)
+
+	active_telegraphs.append({
+		"type": "eight_dir_storm",
+		"caster": e,
+		"require_caster": true,
+		"pos": player.global_position,
+		"radius": 220.0,
+		"center": center,
+		"elapsed": 0.0,
+		"duration": 1.10,
+		"node": danger,
+	})
 
 
 func _trigger_chapter_hazard():
@@ -2585,39 +4744,39 @@ func _trigger_chapter_hazard():
 		player.global_position.x -= 42.0
 		_spawn_floating_text(player.global_position + Vector2(0, -54), "🌬️ ลมเมฆาพัดผลัก!", Color("#38bdf8"), false)
 	else:
-		# Eruption / Lightning / Sword Array / Lava / Seal Hazard Telegraph at player position
 		var target_pos := player.global_position
-		var warn := Polygon2D.new()
-		warn.polygon = _make_ellipse(78.0, 56.0, 20)
-		warn.color = Color(lcol.r, lcol.g, lcol.b, 0.28)
-		warn.position = target_pos
-		warn.z_index = -4
-		add_child(warn)
-		var tw := create_tween()
-		tw.tween_interval(0.75)
-		tw.tween_callback(func():
-			if is_instance_valid(warn):
-				warn.queue_free()
-			if game_over or victory:
-				return
-			_spawn_ring_vfx(target_pos, lcol, 82.0)
-			if player.global_position.distance_to(target_pos) <= 78.0 and invuln_timer <= 0.0:
-				_enemy_hit_player(16, target_pos, false)
-		)
+		var vis := _make_danger_zone_visual(target_pos, 78.0, 0.72)
+		active_telegraphs.append({
+			"type": "hazard_ring",
+			"caster": null,
+			"require_caster": false,
+			"pos": target_pos,
+			"radius": 78.0,
+			"col": lcol,
+			"elapsed": 0.0,
+			"duration": 0.75,
+			"node": vis["root"],
+			"inner": vis["inner"],
+		})
 
 
-func _execute_eight_dir_storm(e: Variant, center: Vector2, warn_node: Node2D):
+func _execute_eight_dir_storm(e: Variant, center: Vector2, warn_node: Variant):
 	if is_instance_valid(warn_node):
-		warn_node.queue_free()
-	if not is_instance_valid(e) or game_over or victory:
+		(warn_node as Node).queue_free()
+	if not is_instance_valid(e) or bool((e as Object).get_meta("is_dead", false)) or game_over or victory:
 		return
+	var eb := e as CharacterBody2D
+	eb.set_meta("casting", 0.0)
+	eb.set_meta("attack_pose_timer", 0.28)
+	eb.set_meta("recovery_timer", 1.35)
+	eb.set_meta("vuln_open", 1.35)
 	sfx.play_sfx("ultimate")
-	shake_strength = 15.0
+	shake_strength = 14.0
 	var cdata := ChapterData.get_chapter(chapter)
-	VfxStudio.spawn_boss_ultimate_vfx(floor_layer, fx_layer, e.global_position, chapter, cdata["light_color"])
+	VfxStudio.spawn_boss_ultimate_vfx(floor_layer, fx_layer, eb.global_position, chapter, cdata["light_color"])
 	for i in range(8):
 		var a := (float(i) / 8.0) * TAU
-		_spawn_enemy_orb(e.global_position, Vector2(cos(a), sin(a)), 26)
+		_spawn_enemy_orb(eb.global_position, Vector2(cos(a), sin(a)), 26)
 	var d := player.global_position.distance_to(center)
 	if d <= 96.0:
 		sfx.play_sfx("dodge")
@@ -2630,6 +4789,7 @@ func _execute_eight_dir_storm(e: Variant, center: Vector2, warn_node: Node2D):
 func _award_spirit_jade(base_amt: int):
 	var mult: float = (1.5 if str(save_data.get("difficulty", "normal")) == "hard" else 1.0) * combat.get_jade_multiplier()
 	var gain := maxi(1, int(round(float(base_amt) * mult)))
+	run_jade_earned += gain
 	save_data["spirit_jade"] = int(save_data.get("spirit_jade", 0)) + gain
 	SaveManager.save_data(save_data, save_path)
 	_refresh_hud()
@@ -2665,7 +4825,7 @@ func _toggle_difficulty():
 
 
 func _set_codex_tab(idx: int):
-	codex_tab = clampi(idx, 0, 3)
+	codex_tab = clampi(idx, 0, 5)
 	if codex_upgrade_scroll:
 		codex_upgrade_scroll.visible = (codex_tab == 0)
 	if codex_party_scroll:
@@ -2674,8 +4834,18 @@ func _set_codex_tab(idx: int):
 		codex_chapters_box.visible = (codex_tab == 2)
 	if codex_gear_scroll:
 		codex_gear_scroll.visible = (codex_tab == 3)
+	if codex_ach_scroll:
+		codex_ach_scroll.visible = (codex_tab == 4)
+	if codex_char_scroll:
+		codex_char_scroll.visible = (codex_tab == 5)
 	if codex_tab == 3:
+		if gear_target_hid.is_empty() or not HeroData.HEROES.has(gear_target_hid):
+			gear_target_hid = active_hero_id
 		_rebuild_gear_list()
+	elif codex_tab == 4 and codex_ach_box:
+		CodexUI.rebuild_achievements_list(codex_ach_box, save_data)
+	elif codex_tab == 5:
+		_rebuild_character_status()
 	for i in range(codex_tab_btns.size()):
 		var b: Button = codex_tab_btns[i]
 		if i == codex_tab:
@@ -2687,6 +4857,10 @@ func _set_codex_tab(idx: int):
 func _toggle_help_overlay():
 	if help_overlay:
 		help_overlay.visible = not help_overlay.visible
+		if help_overlay.visible:
+			Engine.time_scale = 1.0
+		elif not _is_modal_open():
+			Engine.time_scale = game_speed_mult
 		if not help_overlay.visible and sfx and sfx.has_method("resume_audio"):
 			sfx.resume_audio()
 
@@ -2694,6 +4868,9 @@ func _toggle_help_overlay():
 func _open_boon_picker():
 	if not boon_overlay:
 		return
+	if mobile_controls and mobile_controls.has_method("reset_joystick"):
+		mobile_controls.reset_joystick()
+	Engine.time_scale = 1.0
 	var pool: Array = []
 	for b in CodexUI.BOON_DEFS:
 		if not active_boons.has(b["id"]):
@@ -2714,6 +4891,8 @@ func _pick_boon(idx: int):
 	var chosen: Dictionary = boon_choices[idx]
 	active_boons[chosen["id"]] = true
 	boon_overlay.visible = false
+	if mobile_controls and mobile_controls.has_method("reset_joystick"):
+		mobile_controls.reset_joystick()
 	if chosen["id"] == "jade_aegis":
 		for hid in active_party:
 			if hero_hp[hid] > 0.0:
@@ -2723,6 +4902,7 @@ func _pick_boon(idx: int):
 
 
 func _start_boss_rush():
+	Engine.time_scale = 1.0
 	Globals.set_meta("chapter", 1)
 	Globals.set_meta("boss_rush", true)
 	Globals.set_meta("skip_intro", true)
@@ -2732,9 +4912,20 @@ func _start_boss_rush():
 func _toggle_upgrade_modal():
 	upgrade_overlay.visible = not upgrade_overlay.visible
 	if upgrade_overlay.visible:
+		Engine.time_scale = 1.0
 		upgrade_overlay.move_to_front()
 		_rebuild_upgrade_list()
 		_refresh_cutin_btn()
+	elif not _is_modal_open():
+		Engine.time_scale = game_speed_mult
+
+
+func _toggle_character_status_modal():
+	if upgrade_overlay and upgrade_overlay.visible and codex_tab == 5:
+		_toggle_upgrade_modal()
+	else:
+		char_status_selected_hid = active_hero_id
+		_open_codex_tab(5)
 
 
 func _is_cutin_fullscreen() -> bool:
@@ -2742,7 +4933,7 @@ func _is_cutin_fullscreen() -> bool:
 
 
 func _is_boss_present() -> bool:
-	for e in enemies:
+	for e in enemies.duplicate():
 		if not is_instance_valid(e):
 			continue
 		var def: Dictionary = MONSTER_DEFS[str(e.get_meta("kind"))]
@@ -2755,7 +4946,9 @@ func _get_cutin_mode() -> String:
 	var m := str(save_data.get("cutin_mode", ""))
 	if m in CUTIN_MODES:
 		return m
-	return "full" if bool(save_data.get("cutin_enabled", true)) else "skip"
+	if save_data.has("cutin_enabled"):
+		return "boss" if bool(save_data.get("cutin_enabled", true)) else "skip"
+	return "boss"
 
 
 func _should_play_fullscreen_cutin(mode: String) -> bool:
@@ -2859,6 +5052,17 @@ func _rebuild_party_hud():
 		key_lbl.position = Vector2(3, 1)
 		btn.add_child(key_lbl)
 		card.add_child(btn)
+		var swap_badge := Label.new()
+		swap_badge.name = "SwapStatusBadge"
+		swap_badge.text = "R!"
+		swap_badge.add_theme_font_size_override("font_size", 11)
+		swap_badge.add_theme_color_override("font_outline_color", Color.BLACK)
+		swap_badge.add_theme_constant_override("outline_size", 3)
+		swap_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		swap_badge.position = Vector2(22, 32)
+		swap_badge.size = Vector2(24, 16)
+		swap_badge.visible = false
+		card.add_child(swap_badge)
 		portrait_row.add_child(card)
 		hero_cards[hid] = card
 
@@ -2895,7 +5099,10 @@ func _toggle_hero_costume(hid: String):
 	save_data["costumes"][hid] = "default" if cur == "alt" else "alt"
 	SaveManager.save_data(save_data, save_path)
 	if active_hero_id == hid:
-		player_sprite.texture = _get_hero_tex(hid, "stride_0", player_sprite.texture)
+		if _has_4dir_sheet(hid):
+			_set_player_strip(_get_hero_tex(hid, walk_dir_key, player_sprite.texture), 3, 0)
+		else:
+			_set_player_strip(_get_hero_tex(hid, "stride_0", player_sprite.texture), 1, 0)
 	_rebuild_party_hud()
 	_refresh_hud()
 	_rebuild_upgrade_list()
@@ -2928,6 +5135,7 @@ func _buy_hero_passive(hid: String):
 
 
 func _jump_to_chapter(ch_idx: int):
+	Engine.time_scale = 1.0
 	Globals.set_meta("chapter", ch_idx)
 	get_tree().reload_current_scene()
 
@@ -2954,30 +5162,91 @@ func _grant_boss_gear_drop(is_boss: bool):
 	if candidates.size() > 0:
 		var drop_id: String = str(candidates[randi() % candidates.size()])
 		owned.append(drop_id)
+		run_drops.append(drop_id)
 		save_data["owned_gear"] = owned
 		SaveManager.save_data(save_data, save_path)
+		_record_achievement("gear_collect_8", owned.size(), true)
 		var it := EquipData.get_item(drop_id)
 		_show_banner("🎁 ดรอปศาสตราวุธ [%s]: %s!" % [str(it.get("rarity", "")), str(it.get("name", drop_id))], 2.8)
 	else:
 		var bonus_jade := 25 if is_boss else 12
 		_award_spirit_jade(bonus_jade)
+		_show_banner("💎 ศาสตราวุธซ้ำ! แปลงเป็นหยกปราณ +%d 💎" % bonus_jade, 2.4)
 
 
-func _toggle_equip_gear(item_id: String):
+func _apply_hero_max_stat_change(hid: String, old_max_hp: float, old_max_sp: float):
+	if not HeroData.HEROES.has(hid):
+		return
+	var new_max_hp := _get_hero_stat(hid, "max_hp")
+	var new_max_sp := _get_hero_stat(hid, "max_sp")
+	var cur_hp := float(hero_hp.get(hid, new_max_hp))
+	var cur_sp := float(hero_sp.get(hid, new_max_sp))
+	if cur_hp <= 0.0:
+		hero_hp[hid] = 0.0
+	else:
+		var hp_ratio := clampf(cur_hp / maxf(1.0, old_max_hp), 0.0, 1.0)
+		hero_hp[hid] = clampf(round(new_max_hp * hp_ratio), 1.0, new_max_hp)
+	var sp_ratio := clampf(cur_sp / maxf(1.0, old_max_sp), 0.0, 1.0)
+	hero_sp[hid] = clampf(round(new_max_sp * sp_ratio), 0.0, new_max_sp)
+
+
+func _sync_hero_armor_costume(hid: String, has_armor: bool):
+	if not save_data.has("costumes") or typeof(save_data["costumes"]) != TYPE_DICTIONARY:
+		save_data["costumes"] = {}
+	save_data["costumes"][hid] = "alt" if has_armor else "default"
+	if hid == active_hero_id and is_instance_valid(player_sprite):
+		if _has_4dir_sheet(active_hero_id):
+			_set_player_strip(_get_hero_tex(active_hero_id, walk_dir_key, player_sprite.texture), 3, 1)
+		else:
+			_set_player_strip(_get_hero_tex(active_hero_id, "stride_0", player_sprite.texture), 1, 0)
+
+
+func _toggle_equip_gear(item_id: String, target_hid: String = ""):
 	var it := EquipData.get_item(item_id)
 	if it.is_empty():
 		return
+	var eff_hid := target_hid if (not target_hid.is_empty() and HeroData.HEROES.has(target_hid)) else active_hero_id
 	var slot := str(it["slot"])
 	var hg: Dictionary = save_data.get("hero_gear", {}).duplicate(true)
-	var cur_slots: Dictionary = hg.get(active_hero_id, {}).duplicate()
+	var prev_holder := EquipData.find_item_holder(hg, item_id)
+	var old_hp_target := _get_hero_stat(eff_hid, "max_hp")
+	var old_sp_target := _get_hero_stat(eff_hid, "max_sp")
+	var old_hp_prev := _get_hero_stat(prev_holder, "max_hp") if (not prev_holder.is_empty() and HeroData.HEROES.has(prev_holder)) else 0.0
+	var old_sp_prev := _get_hero_stat(prev_holder, "max_sp") if (not prev_holder.is_empty() and HeroData.HEROES.has(prev_holder)) else 0.0
+
+	var cur_slots: Dictionary = hg.get(eff_hid, {}).duplicate()
+	var equipped_now := false
+	var moved_from := ""
 	if str(cur_slots.get(slot, "")) == item_id:
 		cur_slots.erase(slot)
+		equipped_now = false
 	else:
+		# Enforce 1-copy-per-hero ownership: cleanly move item if worn by another hero
+		if not prev_holder.is_empty() and prev_holder != eff_hid:
+			var other_slots: Dictionary = hg.get(prev_holder, {}).duplicate()
+			other_slots.erase(slot)
+			hg[prev_holder] = other_slots
+			moved_from = prev_holder
 		cur_slots[slot] = item_id
-	hg[active_hero_id] = cur_slots
+		equipped_now = true
+	hg[eff_hid] = cur_slots
 	save_data["hero_gear"] = hg
+	gear_inspect_id = item_id
+
+	if slot == "armor":
+		_sync_hero_armor_costume(eff_hid, equipped_now)
+		if not moved_from.is_empty():
+			_sync_hero_armor_costume(moved_from, false)
+		_rebuild_party_hud()
+
 	SaveManager.save_data(save_data, save_path)
-	hero_hp[active_hero_id] = minf(_get_hero_stat(active_hero_id, "max_hp"), hero_hp[active_hero_id])
+	_apply_hero_max_stat_change(eff_hid, old_hp_target, old_sp_target)
+	if not moved_from.is_empty():
+		_apply_hero_max_stat_change(moved_from, old_hp_prev, old_sp_prev)
+		var from_name := str(HeroData.HEROES[moved_from]["name"])
+		var to_name := str(HeroData.HEROES[eff_hid]["name"])
+		_show_banner("🔄 ย้าย %s จาก %s มาสวมให้ %s!" % [str(it["name"]), from_name, to_name], 2.0)
+
 	_rebuild_gear_list()
 	_refresh_hud()
 
@@ -2998,6 +5267,7 @@ func _forge_gear_item(item_id: String):
 	owned.append(item_id)
 	save_data["owned_gear"] = owned
 	SaveManager.save_data(save_data, save_path)
+	_record_achievement("gear_collect_8", owned.size(), true)
 	sfx.play_sfx("crit")
 	_rebuild_gear_list()
 	_refresh_hud()
@@ -3005,51 +5275,421 @@ func _forge_gear_item(item_id: String):
 		upgrade_jade_lbl.text = "💎 หยกปราณคงเหลือ: %d" % int(save_data["spirit_jade"])
 
 
+func _set_gear_filter(flt: String):
+	gear_filter = flt
+	_rebuild_gear_list()
+
+
+func _enhance_gear_item(item_id: String):
+	var owned: Array = save_data.get("owned_gear", [])
+	if not owned.has(item_id):
+		return
+	var gl: Dictionary = save_data.get("gear_levels", {}).duplicate()
+	var cur_lv := int(gl.get(item_id, 0))
+	if cur_lv >= EquipData.MAX_ENHANCE_LV:
+		return
+	var cost := EquipData.get_enhance_cost(item_id, cur_lv)
+	var jade := int(save_data.get("spirit_jade", 0))
+	if jade < cost:
+		_show_banner("หยกปราณไม่พอ! (ต้องการ %d 💎)" % cost, 1.5)
+		return
+	var old_hp_map := {}
+	var old_sp_map := {}
+	for hid in HeroData.HERO_ORDER:
+		old_hp_map[hid] = _get_hero_stat(hid, "max_hp")
+		old_sp_map[hid] = _get_hero_stat(hid, "max_sp")
+	save_data["spirit_jade"] = jade - cost
+	gl[item_id] = cur_lv + 1
+	save_data["gear_levels"] = gl
+	gear_inspect_id = item_id
+	SaveManager.save_data(save_data, save_path)
+	for hid in HeroData.HERO_ORDER:
+		_apply_hero_max_stat_change(hid, float(old_hp_map[hid]), float(old_sp_map[hid]))
+	if cur_lv + 1 >= EquipData.MAX_ENHANCE_LV:
+		_record_achievement("enhance_plus5", 1, true)
+	sfx.play_sfx("crit")
+	_rebuild_gear_list()
+	_refresh_hud()
+	if upgrade_jade_lbl:
+		upgrade_jade_lbl.text = "💎 หยกปราณคงเหลือ: %d" % int(save_data["spirit_jade"])
+
+
+func _format_gear_delta(item_id: String, cur_lv: int) -> String:
+	var cur := EquipData.get_scaled_item_stats(item_id, cur_lv)
+	if cur_lv >= EquipData.MAX_ENHANCE_LV:
+		var max_parts: Array[String] = []
+		if int(cur["atk"]) > 0:
+			max_parts.append("+%d ATK" % int(cur["atk"]))
+		if int(cur["max_hp"]) > 0:
+			max_parts.append("+%d HP" % int(cur["max_hp"]))
+		if int(cur["max_sp"]) > 0:
+			max_parts.append("+%d ปราณ" % int(cur["max_sp"]))
+		if float(cur["crit"]) > 0.0:
+			max_parts.append("+%d%% คริ" % int(round(float(cur["crit"]) * 100.0)))
+		if float(cur["dmg_red"]) > 0.0:
+			max_parts.append("ลดดาเมจ %d%%" % int(round(float(cur["dmg_red"]) * 100.0)))
+		return " · ".join(max_parts) + " (MAX)"
+	var nxt := EquipData.get_scaled_item_stats(item_id, cur_lv + 1)
+	var parts: Array[String] = []
+	if int(nxt["atk"]) > 0:
+		parts.append("ATK +%d➔+%d" % [int(cur["atk"]), int(nxt["atk"])])
+	if int(nxt["max_hp"]) > 0:
+		parts.append("HP +%d➔+%d" % [int(cur["max_hp"]), int(nxt["max_hp"])])
+	if int(nxt["max_sp"]) > 0:
+		parts.append("ปราณ +%d➔+%d" % [int(cur["max_sp"]), int(nxt["max_sp"])])
+	if float(nxt["crit"]) > 0.0:
+		parts.append("คริ +%.1f%%➔+%.1f%%" % [float(cur["crit"]) * 100.0, float(nxt["crit"]) * 100.0])
+	if float(nxt["dmg_red"]) > 0.0:
+		parts.append("ลดดาเมจ %.1f%%➔%.1f%%" % [float(cur["dmg_red"]) * 100.0, float(nxt["dmg_red"]) * 100.0])
+	return " · ".join(parts)
+
+
+func _select_gear_target_hero(hid: String):
+	if HeroData.HEROES.has(hid):
+		gear_target_hid = hid
+		_rebuild_gear_list()
+
+
+func _inspect_gear_item(item_id: String):
+	if EquipData.ITEMS.has(item_id):
+		gear_inspect_id = item_id
+		_rebuild_gear_list()
+
+
 func _rebuild_gear_list():
 	if not codex_gear_box:
 		return
 	for ch in codex_gear_box.get_children():
 		ch.queue_free()
-	var hdata: Dictionary = HeroData.HEROES[active_hero_id]
+	var target_hid := gear_target_hid if (not gear_target_hid.is_empty() and HeroData.HEROES.has(gear_target_hid)) else active_hero_id
+	gear_target_hid = target_hid
+	var hdata: Dictionary = HeroData.HEROES[target_hid]
 	var owned: Array = save_data.get("owned_gear", [])
-	var cur_slots: Dictionary = save_data.get("hero_gear", {}).get(active_hero_id, {})
+	var hg_all: Dictionary = save_data.get("hero_gear", {})
+	var cur_slots: Dictionary = hg_all.get(target_hid, {})
+	var gl: Dictionary = save_data.get("gear_levels", {})
+	var jade_now := int(save_data.get("spirit_jade", 0))
+	if not EquipData.ITEMS.has(gear_inspect_id):
+		gear_inspect_id = str(cur_slots.get("weapon", "jade_sword"))
+		if not EquipData.ITEMS.has(gear_inspect_id):
+			gear_inspect_id = "jade_sword"
+
+	# 1. Hero Selector Bar + Clear Active Target Header
+	var hero_sel_box := VBoxContainer.new()
+	hero_sel_box.add_theme_constant_override("separation", 4)
+	codex_gear_box.add_child(hero_sel_box)
+
 	var hdr := Label.new()
-	hdr.text = "กำลังจัดศาสตราวุธให้: %s (%s) — อาวุธ: %s | เครื่องราง: %s" % [
+	hdr.text = "🎯 กำลังจัดศาสตราวุธให้: %s (%s)%s  ·  กฎอุปกรณ์: 1 ชิ้นสวมได้ทีละ 1 ตัวละคร" % [
 		str(hdata["name"]), str(hdata["title"]),
-		str(EquipData.get_item(str(cur_slots.get("weapon", ""))).get("name", "ว่าง")),
-		str(EquipData.get_item(str(cur_slots.get("relic", ""))).get("name", "ว่าง")),
+		(" [กำลังบังคับ]" if target_hid == active_hero_id else " [สลับตัวละครได้ด้านล่าง]")
 	]
 	hdr.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hdr.add_theme_font_size_override("font_size", 12)
+	hdr.add_theme_font_size_override("font_size", 13)
 	hdr.add_theme_color_override("font_color", Color("#fde047"))
-	codex_gear_box.add_child(hdr)
+	hero_sel_box.add_child(hdr)
+
+	var hbar := HBoxContainer.new()
+	hbar.add_theme_constant_override("separation", 4)
+	hero_sel_box.add_child(hbar)
+	for hid in HeroData.HERO_ORDER:
+		var hi: Dictionary = HeroData.HEROES[hid]
+		var hb := Button.new()
+		var in_pty := active_party.has(hid)
+		var is_t := (str(hid) == target_hid)
+		var eq_cnt := 0
+		var hs_d: Variant = hg_all.get(hid, {})
+		if typeof(hs_d) == TYPE_DICTIONARY:
+			for sk_c in EquipData.ALL_SLOTS:
+				if not str((hs_d as Dictionary).get(sk_c, "")).is_empty():
+					eq_cnt += 1
+		hb.text = "%s%s (%d/3)" % [("★ " if in_pty else ""), str(hi["name"]).split(" ")[0], eq_cnt]
+		hb.custom_minimum_size = Vector2(108, 30)
+		hb.add_theme_font_size_override("font_size", 11)
+		if is_t:
+			hb.add_theme_color_override("font_color", Color("#fde047"))
+		elif in_pty:
+			hb.add_theme_color_override("font_color", Color("#4ade80"))
+		hb.pressed.connect(_select_gear_target_hero.bind(str(hid)))
+		hbar.add_child(hb)
+
+	# 2. 3 Equipped Slot Cards Row (Weapon / Armor / Relic) + Set Bonus Condition Banner
+	var slots_wrap := VBoxContainer.new()
+	slots_wrap.add_theme_constant_override("separation", 5)
+	codex_gear_box.add_child(slots_wrap)
+
+	var slots_row := HBoxContainer.new()
+	slots_row.name = "EquippedSlotsRow"
+	slots_row.add_theme_constant_override("separation", 8)
+	slots_wrap.add_child(slots_row)
+	for s_cfg in [
+		["weapon", "⚔️ ช่องอาวุธ"],
+		["armor", "🛡️ ช่องเกราะ"],
+		["relic", "🔮 ช่องเครื่องราง"],
+	]:
+		var sk_id: String = s_cfg[0]
+		var sk_lbl: String = s_cfg[1]
+		var eq_id := str(cur_slots.get(sk_id, ""))
+		var card_p := PanelContainer.new()
+		card_p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		card_p.custom_minimum_size = Vector2(252, 58)
+		var csb := StyleBoxFlat.new()
+		csb.bg_color = Color(0.06, 0.09, 0.14, 0.92)
+		csb.border_color = Color("#38bdf8") if not eq_id.is_empty() else Color(0.28, 0.34, 0.44, 0.65)
+		csb.set_border_width_all(1)
+		csb.set_corner_radius_all(6)
+		csb.set_content_margin_all(6)
+		card_p.add_theme_stylebox_override("panel", csb)
+		slots_row.add_child(card_p)
+
+		var chb := HBoxContainer.new()
+		chb.add_theme_constant_override("separation", 4)
+		card_p.add_child(chb)
+
+		var cvb := VBoxContainer.new()
+		cvb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cvb.add_theme_constant_override("separation", 1)
+		chb.add_child(cvb)
+
+		var st_title := Label.new()
+		st_title.text = sk_lbl
+		st_title.add_theme_font_size_override("font_size", 10)
+		st_title.add_theme_color_override("font_color", Color("#94a3b8"))
+		cvb.add_child(st_title)
+
+		var st_val := Label.new()
+		st_val.clip_text = true
+		st_val.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		st_val.add_theme_font_size_override("font_size", 11)
+		if eq_id.is_empty():
+			st_val.text = "— ว่าง (เลือกสวมจากรายการ) —"
+			st_val.add_theme_color_override("font_color", Color("#64748b"))
+			cvb.add_child(st_val)
+		else:
+			var eq_it := EquipData.get_item(eq_id)
+			var eq_lv := int(gl.get(eq_id, 0))
+			var lv_t := (" +%d" % eq_lv) if eq_lv > 0 else ""
+			st_val.text = "%s%s [ภพ%s]" % [str(eq_it.get("name", eq_id)), lv_t, str(eq_it.get("realm", ""))]
+			st_val.add_theme_color_override("font_color", Color(str(eq_it.get("color", "#fde047"))))
+			cvb.add_child(st_val)
+
+			var v_btn := Button.new()
+			v_btn.text = "ดู"
+			v_btn.custom_minimum_size = Vector2(34, 34)
+			v_btn.add_theme_font_size_override("font_size", 10)
+			v_btn.pressed.connect(_inspect_gear_item.bind(eq_id))
+			chb.add_child(v_btn)
+
+			var u_btn := Button.new()
+			u_btn.text = "ถอดออก"
+			u_btn.custom_minimum_size = Vector2(58, 34)
+			u_btn.add_theme_font_size_override("font_size", 10)
+			u_btn.add_theme_color_override("font_color", Color("#fca5a5"))
+			u_btn.pressed.connect(_toggle_equip_gear.bind(eq_id, target_hid))
+			chb.add_child(u_btn)
+
+	var rprog := EquipData.get_realm_progress(hg_all, target_hid)
+	var active_realm := str(rprog.get("active_realm", ""))
+	var set_lbl := Label.new()
+	set_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	set_lbl.add_theme_font_size_override("font_size", 12)
+	if not active_realm.is_empty() and EquipData.REALM_SET_BONUSES.has(active_realm):
+		var sb_def: Dictionary = EquipData.REALM_SET_BONUSES[active_realm]
+		set_lbl.text = "✨ เปิดใช้งานโบนัสเซ็ตครบ 3/3 ชิ้น — %s: %s" % [str(sb_def["name"]), str(sb_def["desc"])]
+		set_lbl.add_theme_color_override("font_color", Color("#4ade80"))
+	else:
+		var b_rm := str(rprog.get("best_realm", ""))
+		var b_cnt := int(rprog.get("best_count", 0))
+		if b_cnt > 0 and EquipData.REALM_SET_BONUSES.has(b_rm):
+			var p_def: Dictionary = EquipData.REALM_SET_BONUSES[b_rm]
+			set_lbl.text = "☯ เงื่อนไขโบนัสเซ็ต (ปัจจุบัน ภพ%s %d/3 ชิ้น): สวมอาวุธ+เกราะ+เครื่องรางภพ%sครบ 3 ช่อง ➔ %s" % [b_rm, b_cnt, b_rm, str(p_def["desc"])]
+		else:
+			set_lbl.text = "☯ เงื่อนไขโบนัสเซ็ต (0/3 ชิ้น): สวมอาวุธ + เกราะ + เครื่องรางในภพเดียวกันครบ 3 ชิ้น เพื่อปลดล็อกพลังเซ็ต 4 ภพ!"
+		set_lbl.add_theme_color_override("font_color", Color("#93c5fd"))
+	slots_wrap.add_child(set_lbl)
+
+	# 3. Live Item Detail + Before -> After Hero Stat Comparison + Next Upgrade Preview Card
+	var insp_it := EquipData.get_item(gear_inspect_id)
+	var insp_slot := str(insp_it.get("slot", "weapon"))
+	var insp_lv := int(gl.get(gear_inspect_id, 0))
+	var insp_eq_now: bool = str(cur_slots.get(insp_slot, "")) == gear_inspect_id
+	var cur_hero_st := CharacterStatusUI._compute_hero_stats(save_data, target_hid)
+	var sim_item := "" if insp_eq_now else gear_inspect_id
+	var after_hero_st := CharacterStatusUI._compute_hero_stats(save_data, target_hid, insp_slot, sim_item)
+
+	var insp_panel := PanelContainer.new()
+	insp_panel.name = "GearInspectPanel"
+	var isb := StyleBoxFlat.new()
+	isb.bg_color = Color(0.05, 0.08, 0.13, 0.95)
+	isb.border_color = Color("#fde047")
+	isb.set_border_width_all(1)
+	isb.set_corner_radius_all(6)
+	isb.set_content_margin_all(8)
+	insp_panel.add_theme_stylebox_override("panel", isb)
+	codex_gear_box.add_child(insp_panel)
+
+	var ivb := VBoxContainer.new()
+	ivb.add_theme_constant_override("separation", 3)
+	insp_panel.add_child(ivb)
+
+	var insp_rm := str(insp_it.get("realm", ""))
+	var rm_set_desc := str(EquipData.REALM_SET_BONUSES.get(insp_rm, {}).get("desc", ""))
+	var ititle := Label.new()
+	ititle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	ititle.add_theme_font_size_override("font_size", 12)
+	ititle.add_theme_color_override("font_color", Color(str(insp_it.get("color", "#fde047"))))
+	ititle.text = "🔍 รายละเอียด: %s%s [%s · ภพ%s]  |  เซ็ตภพ%s (3 ชิ้น): %s" % [
+		str(insp_it.get("name", "")),
+		((" +%d" % insp_lv) if insp_lv > 0 else ""),
+		str(insp_it.get("rarity", "")),
+		insp_rm,
+		insp_rm,
+		rm_set_desc,
+	]
+	ivb.add_child(ititle)
+
+	var cmp_parts: Array[String] = []
+	for s_meta in [
+		["HP", "max_hp", false],
+		["ปราณ", "max_sp", false],
+		["ATK", "atk", false],
+		["CRIT", "crit", true],
+		["ลดดาเมจ", "dmg_red", true],
+	]:
+		var sl: String = s_meta[0]
+		var sk: String = s_meta[1]
+		var pct: bool = s_meta[2]
+		var b_v := float(cur_hero_st[sk])
+		var a_v := float(after_hero_st[sk])
+		var df := a_v - b_v
+		if pct:
+			if absf(df) >= 0.05:
+				cmp_parts.append("%s %.0f%%➔%.0f%% (%s%.0f%%)" % [sl, b_v, a_v, ("+" if df > 0 else ""), df])
+			else:
+				cmp_parts.append("%s %.0f%%" % [sl, b_v])
+		else:
+			var bi := int(round(b_v))
+			var ai := int(round(a_v))
+			var di := ai - bi
+			if di != 0:
+				cmp_parts.append("%s %d➔%d (%s%d)" % [sl, bi, ai, ("+" if di > 0 else ""), di])
+			else:
+				cmp_parts.append("%s %d" % [sl, bi])
+
+	var icmp := Label.new()
+	icmp.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	icmp.add_theme_font_size_override("font_size", 11)
+	icmp.add_theme_color_override("font_color", Color("#e2e8f0"))
+	var act_verb := "เมื่อถอดออก" if insp_eq_now else "เมื่อสวมใส่"
+	icmp.text = "📊 เทียบค่าพลัง %s (%s):  %s" % [str(hdata["name"]).split(" ")[0], act_verb, "  ·  ".join(cmp_parts)]
+	ivb.add_child(icmp)
+
+	var iupg := Label.new()
+	iupg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	iupg.add_theme_font_size_override("font_size", 11)
+	if insp_lv >= EquipData.MAX_ENHANCE_LV:
+		iupg.text = "⚒️ อัปเกรด: ระดับสูงสุด +5 (MAX) — %s" % _format_gear_delta(gear_inspect_id, insp_lv)
+		iupg.add_theme_color_override("font_color", Color("#fde047"))
+	else:
+		var u_cost := EquipData.get_enhance_cost(gear_inspect_id, insp_lv)
+		iupg.text = "⚒️ ตัวอย่างอัปเกรด +%d ➔ +%d: ใช้หยกปราณ %d 💎 (มี %d 💎)  ·  ผลเพิ่ม: %s" % [
+			insp_lv, insp_lv + 1, u_cost, jade_now, _format_gear_delta(gear_inspect_id, insp_lv)
+		]
+		iupg.add_theme_color_override("font_color", Color("#86efac") if jade_now >= u_cost else Color("#fca5a5"))
+	ivb.add_child(iupg)
+
+	# 4. Slot Filter Row
+	var flt_row := HBoxContainer.new()
+	flt_row.add_theme_constant_override("separation", 6)
+	codex_gear_box.add_child(flt_row)
+	for f_item in [["all", "ทั้งหมด (15)"], ["weapon", "⚔️ อาวุธ (5)"], ["armor", "🛡️ เครื่องป้องกัน (5)"], ["relic", "🔮 เครื่องราง (5)"]]:
+		var fb := Button.new()
+		fb.text = str(f_item[1])
+		fb.custom_minimum_size = Vector2(150, 38)
+		fb.add_theme_font_size_override("font_size", 11)
+		if gear_filter == str(f_item[0]):
+			fb.add_theme_color_override("font_color", Color("#fde047"))
+		fb.pressed.connect(_set_gear_filter.bind(str(f_item[0])))
+		flt_row.add_child(fb)
+
+	# 5. Item Rows (direct children of codex_gear_box) with distinct Inspect / Enhance / Equip-Unequip-Forge actions
 	for item_id in EquipData.ITEM_ORDER:
 		var it := EquipData.get_item(item_id)
+		var slot_k := str(it["slot"])
+		if gear_filter != "all" and slot_k != gear_filter:
+			continue
 		var is_owned := owned.has(item_id)
-		var is_eq: bool = str(cur_slots.get(str(it["slot"]), "")) == item_id
+		var is_eq: bool = str(cur_slots.get(slot_k, "")) == item_id
+		var holder_hid := EquipData.find_item_holder(hg_all, item_id)
+		var held_other: bool = (not holder_hid.is_empty() and holder_hid != target_hid)
+		var holder_short := str(HeroData.HEROES.get(holder_hid, {}).get("name", holder_hid)).split(" ")[0] if held_other else ""
+		var cur_lv := int(gl.get(item_id, 0))
+
 		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 8)
+		row.add_theme_constant_override("separation", 6)
 		codex_gear_box.add_child(row)
-		var slot_tag := "⚔️ อาวุธ" if it["slot"] == "weapon" else "🔮 เครื่องราง"
+
+		var slot_tag := "⚔️ อาวุธ" if slot_k == "weapon" else ("🛡️ เกราะ" if slot_k == "armor" else "🔮 เครื่องราง")
+		var lv_tag := (" +%d" % cur_lv) if cur_lv > 0 else ""
+		var owner_tag := (" [สวมอยู่]" if is_eq else ((" [สวมโดย %s]" % holder_short) if held_other else ""))
 		var lbl := Label.new()
-		lbl.text = "[%s · %s] %s — %s" % [slot_tag, str(it["rarity"]), str(it["name"]), str(it["desc"])]
+		var stat_txt := _format_gear_delta(item_id, cur_lv) if is_owned else str(it["desc"])
+		lbl.text = "[%s · %s · ภพ%s] %s%s%s\n%s" % [slot_tag, str(it["rarity"]), str(it.get("realm", "")), str(it["name"]), lv_tag, owner_tag, stat_txt]
 		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		lbl.add_theme_font_size_override("font_size", 12)
-		lbl.add_theme_color_override("font_color", Color(str(it["color"])) if is_owned else Color("#64748b"))
+		lbl.add_theme_color_override("font_color", Color(str(it["color"])) if is_owned else Color("#94a3b8"))
 		row.add_child(lbl)
-		var btn := Button.new()
-		btn.custom_minimum_size = Vector2(118, 38)
-		btn.add_theme_font_size_override("font_size", 12)
+
+		var det_btn := Button.new()
+		det_btn.text = "★ กำลังดู" if gear_inspect_id == item_id else "ดูรายละเอียด"
+		det_btn.custom_minimum_size = Vector2(92, 42)
+		det_btn.add_theme_font_size_override("font_size", 11)
+		if gear_inspect_id == item_id:
+			det_btn.add_theme_color_override("font_color", Color("#fde047"))
+		det_btn.pressed.connect(_inspect_gear_item.bind(item_id))
+		det_btn.mouse_entered.connect(func():
+			if gear_inspect_id != item_id:
+				gear_inspect_id = item_id
+		)
+		row.add_child(det_btn)
+
 		if is_owned:
-			btn.text = "✓ ใส่อยู่ (ถอด)" if is_eq else "สวมใส่"
+			var enh_btn := Button.new()
+			enh_btn.custom_minimum_size = Vector2(114, 42)
+			enh_btn.add_theme_font_size_override("font_size", 11)
+			if cur_lv >= EquipData.MAX_ENHANCE_LV:
+				enh_btn.text = "อัปเกรด MAX"
+				enh_btn.disabled = true
+			else:
+				var e_cost := EquipData.get_enhance_cost(item_id, cur_lv)
+				enh_btn.text = "อัปเกรด +%d (%d💎)" % [cur_lv + 1, e_cost]
+				enh_btn.disabled = jade_now < e_cost
+				enh_btn.add_theme_color_override("font_color", Color("#4ade80") if not enh_btn.disabled else Color("#94a3b8"))
+			enh_btn.pressed.connect(_enhance_gear_item.bind(item_id))
+			row.add_child(enh_btn)
+
+		var btn := Button.new()
+		btn.custom_minimum_size = Vector2(104, 42)
+		btn.add_theme_font_size_override("font_size", 11)
+		if is_owned:
 			if is_eq:
+				btn.text = "ถอดออก"
+				btn.tooltip_text = "ถอดอุปกรณ์ออกจากช่องนี้"
+				btn.add_theme_color_override("font_color", Color("#fca5a5"))
+			elif held_other:
+				btn.text = "ย้ายมาสวม"
+				btn.tooltip_text = "ย้ายอุปกรณ์จาก %s มาสวมให้ตัวละครนี้" % holder_short
+				btn.add_theme_color_override("font_color", Color("#fbbf24"))
+			else:
+				btn.text = "สวมใส่"
+				btn.tooltip_text = "สวมใส่อุปกรณ์ลงในช่อง"
 				btn.add_theme_color_override("font_color", Color("#4ade80"))
-			btn.pressed.connect(_toggle_equip_gear.bind(item_id))
+			btn.pressed.connect(_toggle_equip_gear.bind(item_id, target_hid))
 		else:
 			var cost := int(it.get("cost", 50))
 			btn.text = "หลอม %d 💎" % cost
-			btn.disabled = int(save_data.get("spirit_jade", 0)) < cost
+			btn.disabled = jade_now < cost
 			btn.pressed.connect(_forge_gear_item.bind(item_id))
 		row.add_child(btn)
 
@@ -3094,3 +5734,382 @@ func _import_save_code(raw_override: String = ""):
 	_refresh_hud()
 	sfx.play_sfx("victory")
 	_show_banner("✅ นำเข้าเซฟสำเร็จ! หยกปราณ %d 💎" % int(save_data["spirit_jade"]), 2.6)
+
+
+func _refresh_mirror_btn():
+	if not codex_mirror_btn:
+		return
+	var mir := bool(save_data.get("touch_mirror", false))
+	codex_mirror_btn.text = "🎮 ปุ่มทัช: สลับฝั่ง" if mir else "🎮 ปุ่มทัช: ปกติ"
+	codex_mirror_btn.add_theme_color_override("font_color", Color("#fde047") if mir else Color("#93c5fd"))
+
+
+func _toggle_touch_mirror():
+	var next_val := not bool(save_data.get("touch_mirror", false))
+	save_data["touch_mirror"] = next_val
+	SaveManager.save_data(save_data, save_path)
+	if mobile_controls and mobile_controls.has_method("set_mirrored"):
+		mobile_controls.set_mirrored(next_val)
+	_refresh_mirror_btn()
+	_show_banner("🎮 จัดวางปุ่มทัช: %s" % ("สลับ 2 มือ (ขวา)" if next_val else "มือซ้ายข้างเดียว"), 1.6)
+
+
+func _toggle_game_speed():
+	game_speed_mult = 1.5 if game_speed_mult < 1.25 else 1.0
+	save_data["game_speed"] = game_speed_mult
+	SaveManager.save_data(save_data, save_path)
+	if not _is_modal_open() and hitstop_timer <= 0.0 and combat.get_desired_time_scale(hitstop_timer) >= 0.99:
+		Engine.time_scale = game_speed_mult
+	_show_banner("⏩ ความเร็วเกม: %.1f×" % game_speed_mult, 1.2)
+	_refresh_hud()
+
+
+func _toggle_hud_menu():
+	var next_val := not bool(save_data.get("hud_menu_expanded", false))
+	save_data["hud_menu_expanded"] = next_val
+	SaveManager.save_data(save_data, save_path)
+	_apply_hud_menu_state()
+
+
+func _apply_hud_menu_state():
+	var expanded := bool(save_data.get("hud_menu_expanded", false))
+	if top_right_btn_grid:
+		top_right_btn_grid.visible = expanded
+	if menu_toggle_btn:
+		menu_toggle_btn.text = "▲ ยุบ [M]" if expanded else "▼ เมนู [M]"
+	if top_right_panel:
+		top_right_panel.offset_left = -402.0 if expanded else -286.0
+	if get_viewport():
+		var vr := get_viewport().get_visible_rect().size
+		if vr.x > 1.0 and vr.y > 1.0:
+			_layout_landscape_center_hud(vr)
+
+
+func _populate_battle_summary(is_victory: bool):
+	if not end_summary_box:
+		return
+	for ch in end_summary_box.get_children():
+		ch.queue_free()
+
+	var total_dmg := 0
+	var mvp_hid := ""
+	var mvp_dmg := -1
+	for hid in active_party:
+		var d := int(run_hero_damage.get(hid, 0))
+		total_dmg += d
+		if d > mvp_dmg:
+			mvp_dmg = d
+			mvp_hid = str(hid)
+
+	var peak_idx := clampi(combat.peak_rank_idx, 0, CombatSystem.RANKS.size() - 1)
+	var peak_rank := str(CombatSystem.RANKS[peak_idx]["id"])
+	if CombatSystem.RANKS.find_custom(func(r): return r["id"] == run_max_combo_rank) > peak_idx:
+		peak_rank = run_max_combo_rank
+	var pd_cnt := maxi(run_perfect_dodges, combat.perfect_dodge_count)
+	var react_cnt := maxi(run_reactions, combat.reaction_count)
+
+	var rec_flags := {"new_time": false, "new_combo": false, "new_damage": false, "any_new": false}
+	if is_victory:
+		rec_flags = SaveManager.update_chapter_record(save_data, chapter, run_elapsed_time, run_max_combo_hits, total_dmg)
+		SaveManager.save_data(save_data, save_path)
+
+	var meta_lbl := Label.new()
+	var rec_tag := "  🔥 NEW RECORD!" if bool(rec_flags.get("any_new", false)) else ""
+	meta_lbl.text = "⏱️ เวลา: %.1f วิ  ·  🔥 คอมโบสูงสุด: %d Hits (%s)  ·  💥 คริสูงสุด: %d  ·  ⚡ หลบพริบตา: %d  ·  💥 ปฏิกิริยาธาตุ: %d  ·  💎 หยกปราณ: +%d%s" % [
+		run_elapsed_time, run_max_combo_hits, peak_rank, run_max_crit_dmg, pd_cnt, react_cnt, run_jade_earned, rec_tag
+	]
+	meta_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	meta_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	meta_lbl.add_theme_font_size_override("font_size", 12)
+	meta_lbl.add_theme_color_override("font_color", Color("#fde047") if bool(rec_flags.get("any_new", false)) else Color("#cbd5e1"))
+	end_summary_box.add_child(meta_lbl)
+
+	if not is_victory:
+		var tip_lbl := Label.new()
+		var tip_txt := "💡 เคล็ดลับแก้ทาง: "
+		if pd_cnt == 0:
+			tip_txt += "สังเกตป้าย '⚠️ โจมตี!' และวงสีแดงใต้เท้าศัตรู แล้วกด [Space / Shift] หลบพริบตา จะได้ปราณ +30 และคริติคอล 100%!"
+		elif react_cnt == 0:
+			tip_txt += "ลองกดสกิล [Q] หรือ [E] แปะตราธาตุใส่ศัตรู แล้วกด [1 / 2 / 3] สลับตัวละครเพื่อระเบิดปฏิกิริยาธาตุทำดาเมจหมู่!"
+		else:
+			tip_txt += "แวะเปิด [U] หอคัมภีร์เซียน เพื่อนำหยกปราณไปอัปเกรดพลังชีวิต/พลังโจมตี และสวมใส่ศาสตราวุธก่อนลุยรอบถัดไป!"
+		tip_lbl.text = tip_txt
+		tip_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		tip_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tip_lbl.add_theme_font_size_override("font_size", 13)
+		tip_lbl.add_theme_color_override("font_color", Color("#5eead4"))
+		end_summary_box.add_child(tip_lbl)
+
+	var dmg_hdr := Label.new()
+	dmg_hdr.text = "── ตารางสรุปดาเมจรวม (%d DMG) ──" % total_dmg
+	dmg_hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	dmg_hdr.add_theme_font_size_override("font_size", 12)
+	dmg_hdr.add_theme_color_override("font_color", Color("#93c5fd"))
+	end_summary_box.add_child(dmg_hdr)
+
+	for hid in active_party:
+		var hinfo: Dictionary = HeroData.HEROES[hid]
+		var hdmg := int(run_hero_damage.get(hid, 0))
+		var pct := (float(hdmg) / float(maxi(1, total_dmg))) * 100.0
+		var is_mvp: bool = (str(hid) == mvp_hid and hdmg > 0)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		end_summary_box.add_child(row)
+
+		var nlbl := Label.new()
+		nlbl.custom_minimum_size = Vector2(180, 22)
+		nlbl.text = "%s%s" % [("👑 MVP " if is_mvp else "   "), str(hinfo["name"])]
+		nlbl.add_theme_font_size_override("font_size", 12)
+		nlbl.add_theme_color_override("font_color", Color("#fde047") if is_mvp else Color("#e2e8f0"))
+		row.add_child(nlbl)
+
+		var bar := ProgressBar.new()
+		bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar.custom_minimum_size = Vector2(160, 14)
+		bar.show_percentage = false
+		bar.max_value = 100.0
+		bar.value = pct
+		row.add_child(bar)
+
+		var vlbl := Label.new()
+		vlbl.custom_minimum_size = Vector2(130, 22)
+		vlbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		vlbl.text = "%d (%.0f%%)" % [hdmg, pct]
+		vlbl.add_theme_font_size_override("font_size", 12)
+		vlbl.add_theme_color_override("font_color", Color("#4ade80") if is_mvp else Color("#cbd5e1"))
+		row.add_child(vlbl)
+
+	if run_drops.size() > 0:
+		var drop_names: Array[String] = []
+		for did in run_drops:
+			drop_names.append(str(EquipData.get_item(str(did)).get("name", did)))
+		var dlbl := Label.new()
+		dlbl.text = "🎁 ศาสตราวุธที่ได้: " + ", ".join(drop_names)
+		dlbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		dlbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		dlbl.add_theme_font_size_override("font_size", 12)
+		dlbl.add_theme_color_override("font_color", Color("#34d399"))
+		end_summary_box.add_child(dlbl)
+
+
+func _record_achievement(ach_id: String, amount: int = 1, set_absolute: bool = false):
+	var res := SaveManager.record_achievement_progress(save_data, ach_id, amount, set_absolute)
+	if bool(res.get("unlocked_now", false)):
+		SaveManager.save_data(save_data, save_path)
+		_show_toast("🏆 สำเร็จภารกิจ: %s (+%d 💎)" % [str(res["title"]), int(res["reward"])])
+		if upgrade_jade_lbl:
+			upgrade_jade_lbl.text = "💎 หยกปราณคงเหลือ: %d" % int(save_data["spirit_jade"])
+
+
+func _show_toast(msg: String):
+	if not toast_panel or not toast_label:
+		return
+	toast_label.text = msg
+	toast_panel.visible = true
+	toast_timer = 2.8
+
+
+func _build_toast_and_tutorial_hud(hud: CanvasLayer, sb: StyleBoxFlat):
+	toast_panel = PanelContainer.new()
+	toast_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	toast_panel.position = Vector2(-390, 148)
+	toast_panel.custom_minimum_size = Vector2(360, 42)
+	var tsb := sb.duplicate()
+	tsb.border_color = Color("#fde047")
+	tsb.bg_color = Color(0.06, 0.09, 0.14, 0.94)
+	toast_panel.add_theme_stylebox_override("panel", tsb)
+	toast_panel.visible = false
+	hud.add_child(toast_panel)
+
+	toast_label = Label.new()
+	toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	toast_label.add_theme_font_size_override("font_size", 13)
+	toast_label.add_theme_color_override("font_color", Color("#fde047"))
+	toast_panel.add_child(toast_label)
+
+	tutorial_panel = PanelContainer.new()
+	tutorial_panel.position = Vector2(316, 114)
+	tutorial_panel.custom_minimum_size = Vector2(520, 52)
+	var tut_sb := sb.duplicate()
+	tut_sb.border_color = Color("#38bdf8")
+	tut_sb.bg_color = Color(0.04, 0.08, 0.14, 0.94)
+	tutorial_panel.add_theme_stylebox_override("panel", tut_sb)
+	tutorial_panel.visible = false
+	hud.add_child(tutorial_panel)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 10)
+	tutorial_panel.add_child(hbox)
+
+	tutorial_lbl = Label.new()
+	tutorial_lbl.custom_minimum_size = Vector2(360, 0)
+	tutorial_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tutorial_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tutorial_lbl.add_theme_font_size_override("font_size", 12)
+	tutorial_lbl.add_theme_color_override("font_color", Color("#f8fafc"))
+	hbox.add_child(tutorial_lbl)
+
+	tutorial_skip_btn = Button.new()
+	tutorial_skip_btn.text = "ข้ามการสอน ✕"
+	tutorial_skip_btn.custom_minimum_size = Vector2(110, 34)
+	tutorial_skip_btn.add_theme_font_size_override("font_size", 12)
+	_style_hud_btn(tutorial_skip_btn, Color("#38bdf8"), Color("#f8fafc"))
+	tutorial_skip_btn.pressed.connect(_complete_interactive_tutorial)
+	hbox.add_child(tutorial_skip_btn)
+
+	tutorial_arrow_lbl = Label.new()
+	tutorial_arrow_lbl.text = "⬇ กดเลย!"
+	tutorial_arrow_lbl.add_theme_font_size_override("font_size", 14)
+	tutorial_arrow_lbl.add_theme_color_override("font_color", Color("#fde047"))
+	tutorial_arrow_lbl.add_theme_color_override("font_outline_color", Color.BLACK)
+	tutorial_arrow_lbl.add_theme_constant_override("outline_size", 4)
+	tutorial_arrow_lbl.visible = false
+	hud.add_child(tutorial_arrow_lbl)
+
+
+func _start_interactive_tutorial():
+	_advance_tutorial(1)
+
+
+func _get_tutorial_target_ctrl(step: int) -> Control:
+	var touch_on := mobile_controls != null and mobile_controls.visible
+	if step == 1:
+		return mobile_controls.btn_dash if touch_on else skill_dash_pill
+	elif step == 2:
+		return mobile_controls.btn_e if touch_on else skill_e_pill
+	elif step == 3:
+		if active_party.size() >= 2 and hero_cards.has(active_party[1]):
+			return hero_cards[active_party[1]]
+		elif active_party.size() >= 1 and hero_cards.has(active_party[0]):
+			return hero_cards[active_party[0]]
+	return null
+
+
+func _clear_tutorial_highlights():
+	for c in [skill_dash_pill, skill_e_pill]:
+		if is_instance_valid(c):
+			c.modulate = Color.WHITE
+	if mobile_controls:
+		for c in [mobile_controls.btn_dash, mobile_controls.btn_e]:
+			if is_instance_valid(c):
+				c.modulate = Color.WHITE
+	for card in hero_cards.values():
+		if is_instance_valid(card):
+			(card as Control).modulate = Color.WHITE
+
+
+func _position_tutorial_arrow():
+	if not tutorial_arrow_lbl or tutorial_step == 0:
+		return
+	var target := _get_tutorial_target_ctrl(tutorial_step)
+	if not is_instance_valid(target):
+		return
+	var r := target.get_global_rect()
+	if r.size.x <= 0.0:
+		return
+	var bob := sin(float(Time.get_ticks_msec()) * 0.008) * 4.0
+	if tutorial_step == 3:
+		tutorial_arrow_lbl.text = "⬆ แตะสลับ!" if (mobile_controls and mobile_controls.visible) else "⬆ กดสลับ!"
+		tutorial_arrow_lbl.position = Vector2(r.position.x - 4.0, r.end.y + 6.0 + bob)
+	else:
+		tutorial_arrow_lbl.text = "⬇ กดเลย!"
+		tutorial_arrow_lbl.position = Vector2(r.position.x + (r.size.x - 74.0) * 0.5, r.position.y - 28.0 + bob)
+
+
+func _advance_tutorial(step: int):
+	_clear_tutorial_highlights()
+	tutorial_step = step
+	if not tutorial_panel or not tutorial_lbl:
+		return
+	tutorial_panel.visible = true
+	if tutorial_arrow_lbl:
+		tutorial_arrow_lbl.visible = true
+	if step == 1:
+		tutorial_lbl.text = "👉 ขั้นที่ 1/3: เดินด้วย [WASD] รอศัตรูขึ้นเตือน \"⚠️ โจมตี!\" แล้วกด [Space / Shift] เพื่อหลบพริบตา!"
+	elif step == 2:
+		Engine.time_scale = 1.0
+		if chapter == 1 and current_room == 0 and enemies.size() == 0:
+			_spawn_enemy("cultist", player.global_position + Vector2(140.0, 0.0))
+		tutorial_lbl.text = "👉 ขั้นที่ 2/3: กดหรือคลิกสกิล [E] ใส่ศัตรูเพื่อ \"แปะตราธาตุ\"!"
+	elif step == 3:
+		if chapter == 1 and current_room == 0 and enemies.size() == 0:
+			_spawn_enemy("cultist", player.global_position + Vector2(140.0, 0.0))
+		tutorial_lbl.text = "👉 ขั้นที่ 3/3: กดสลับตัว [1 / 2 / 3] (หรือแตะรูปตัวละครซ้ายบน) เพื่อ \"ระเบิดปฏิกิริยาธาตุ\"!"
+	if get_viewport():
+		_layout_landscape_center_hud(get_viewport().get_visible_rect().size)
+	_position_tutorial_arrow()
+
+
+func _complete_interactive_tutorial():
+	tutorial_step = 0
+	_clear_tutorial_highlights()
+	Engine.time_scale = 1.0
+	if tutorial_panel:
+		tutorial_panel.visible = false
+	if tutorial_arrow_lbl:
+		tutorial_arrow_lbl.visible = false
+	save_data["tutorial_completed"] = true
+	SaveManager.save_data(save_data, save_path)
+	_show_toast("🎓 ฝึกยุทธ์สำเร็จ! ลุยหอคอยได้เลย!")
+
+
+func _update_interactive_tutorial(_delta: float):
+	if tutorial_step == 0:
+		return
+	_position_tutorial_arrow()
+	var target := _get_tutorial_target_ctrl(tutorial_step)
+	if is_instance_valid(target):
+		var glow := 0.88 + 0.12 * sin(float(Time.get_ticks_msec()) * 0.01)
+		target.modulate = Color(1.15, 1.08, glow, 1.0)
+	if tutorial_step == 1 and _has_incoming_threat():
+		Engine.time_scale = 0.35
+	elif tutorial_step == 1 and Engine.time_scale < 0.99:
+		Engine.time_scale = 1.0
+
+
+func _rebuild_character_status():
+	if not codex_char_box:
+		return
+	CharacterStatusUI.build_view(codex_char_box, {
+		"save_data": save_data,
+		"active_party": active_party,
+		"selected_hid": char_status_selected_hid,
+		"drawer_slot": char_status_drawer_slot,
+		"preview_item_id": char_status_preview_id,
+		"is_portrait": false,
+	}, {
+		"get_portrait": func(hid: String): return _get_hero_tex(hid, "portrait"),
+		"select_hero": func(hid: String):
+			char_status_selected_hid = hid
+			char_status_drawer_slot = ""
+			char_status_preview_id = ""
+			_rebuild_character_status(),
+		"open_drawer": func(slot_k: String):
+			char_status_drawer_slot = slot_k
+			char_status_preview_id = ""
+			_rebuild_character_status(),
+		"close_drawer": func():
+			char_status_drawer_slot = ""
+			char_status_preview_id = ""
+			_rebuild_character_status(),
+		"preview_item": func(item_id: String):
+			if char_status_preview_id != item_id:
+				char_status_preview_id = item_id
+				_rebuild_character_status(),
+		"equip_item": func(hid: String, item_id: String):
+			_toggle_equip_gear(item_id, hid)
+			char_status_preview_id = ""
+			_rebuild_character_status(),
+		"forge_item": func(item_id: String):
+			_forge_gear_item(item_id)
+			_rebuild_character_status(),
+		"enhance_item": func(item_id: String):
+			_enhance_gear_item(item_id)
+			_rebuild_character_status(),
+		"toggle_costume": func(hid: String):
+			_toggle_hero_costume(hid)
+			_rebuild_character_status(),
+		"buy_passive": func(hid: String):
+			_buy_hero_passive(hid)
+			_rebuild_character_status(),
+	})

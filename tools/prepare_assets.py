@@ -4,7 +4,7 @@ from collections import deque
 from PIL import Image, ImageDraw
 import numpy as np
 
-BASE_DIR = "/Users/Shared/my_ai_project/01_ACTIVE_PROJECTS/6.game/maha_dan_morta"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_SPRITES = "/Users/Shared/my_ai_project/01_ACTIVE_PROJECTS/6.game/_ARCHIVE_PROTOTYPES_20261114/ro_mmo/client/assets/sprites"
 MONSTER_SHEET = "/Users/jake/.gemini/antigravity/brain/0abd22ec-3190-455d-a91e-76f1414aada7/concept_monsters_sheet_1794756522428.jpg"
 
@@ -156,7 +156,49 @@ def build_dark_jade_env():
     print("Built Dark Jade Ruin environment assets.")
 
 
+def generate_normal_map(src_path: str, dst_path: str, strength: float = 3.2) -> None:
+    """Generates a WebGL2-ready tangent-space normal map (*_n.png) from a diffuse tile."""
+    if not os.path.exists(src_path):
+        return
+    im = Image.open(src_path).convert("RGBA")
+    arr = np.array(im, dtype=np.float32)
+    # Luminance heightfield in [0, 1]
+    gray = (0.299 * arr[..., 0] + 0.587 * arr[..., 1] + 0.114 * arr[..., 2]) / 255.0
+    # Tile-seamless central differences using np.roll
+    dx = (np.roll(gray, -1, axis=1) - np.roll(gray, 1, axis=1)) * 0.5 * strength
+    dy = (np.roll(gray, -1, axis=0) - np.roll(gray, 1, axis=0)) * 0.5 * strength
+    dz = np.ones_like(gray)
+    norm = np.sqrt(dx * dx + dy * dy + dz * dz)
+    nx = -dx / norm
+    ny = -dy / norm
+    nz = dz / norm
+
+    out = np.zeros_like(arr, dtype=np.uint8)
+    out[..., 0] = np.clip((nx * 0.5 + 0.5) * 255.0, 0, 255).astype(np.uint8)
+    out[..., 1] = np.clip((ny * 0.5 + 0.5) * 255.0, 0, 255).astype(np.uint8)
+    out[..., 2] = np.clip((nz * 0.5 + 0.5) * 255.0, 0, 255).astype(np.uint8)
+    out[..., 3] = 255
+    Image.fromarray(out).save(dst_path)
+    print(f"Saved normal map: {os.path.basename(dst_path)} {im.size}")
+
+
+def build_normal_maps() -> None:
+    env_dir = os.path.join(BASE_DIR, "assets", "env")
+    for stem, strength in [
+        ("floor_slate", 3.5),
+        ("floor_bamboo", 3.2),
+        ("wall_stone", 3.8),
+        ("wall_bamboo", 3.4),
+    ]:
+        src = os.path.join(env_dir, f"{stem}.png")
+        dst = os.path.join(env_dir, f"{stem}_n.png")
+        generate_normal_map(src, dst, strength=strength)
+
+
 if __name__ == "__main__":
-    copy_heroes_and_vfx()
-    slice_monsters()
+    if os.path.exists(SRC_SPRITES):
+        copy_heroes_and_vfx()
+    if os.path.exists(MONSTER_SHEET):
+        slice_monsters()
     build_dark_jade_env()
+    build_normal_maps()

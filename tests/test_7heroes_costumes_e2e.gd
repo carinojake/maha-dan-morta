@@ -25,8 +25,41 @@ func _init():
 			for k in ["stride_0", "strike_1", "skill_1", "portrait"]:
 				assert(tex_dict.has(k) and tex_dict[k] != null, "Missing %s/%s/%s" % [hid, mode, k])
 
-	# 2. Verify yu_han extended reach
-	assert(float(HeroData.HEROES["yu_han"]["range"]) == 215.0, "yu_han range mismatch")
+	# 1b. Verify 4-dir walk (walk_down, walk_up, walk_side 3f) + attack_4f + skill_4f across ALL 7 heroes
+	for hid in HeroData.HERO_ORDER:
+		assert(game._has_4dir_sheet(hid), "_has_4dir_sheet must be true for %s" % hid)
+		var hdict: Dictionary = game.hero_textures[hid]["default"]
+		for k in ["walk_down", "walk_up", "walk_side"]:
+			assert(hdict.has(k) and hdict[k] != null, "Missing %s/default/%s" % [hid, k])
+			assert(hdict[k].get_width() == 1200 and hdict[k].get_height() == 320, "%s/%s must be 1200x320" % [hid, k])
+		for k in ["attack_4f", "skill_4f"]:
+			assert(hdict.has(k) and hdict[k] != null, "Missing %s/default/%s" % [hid, k])
+			assert(hdict[k].get_width() == 1600 and hdict[k].get_height() == 320, "%s/%s must be 1600x320" % [hid, k])
+
+	for mode in ["default", "alt", "alt_snow"]:
+		var bdict: Dictionary = game.hero_textures["bai_yueling"][mode]
+		for k in ["walk_down", "walk_up", "walk_side", "attack_4f", "skill_4f"]:
+			assert(bdict.has(k) and bdict[k] != null, "Missing bai_yueling/%s/%s" % [mode, k])
+		assert(bdict["walk_down"].get_width() == 1200 and bdict["walk_down"].get_height() == 320, "walk_down must be 1200x320 (3x 400x320)")
+		assert(bdict["attack_4f"].get_width() == 1600 and bdict["attack_4f"].get_height() == 320, "attack_4f must be 1600x320 (4x 400x320)")
+		assert(bdict["skill_4f"].get_width() == 1600 and bdict["skill_4f"].get_height() == 320, "skill_4f must be 1600x320 (4x 400x320)")
+
+	game._switch_hero("bai_yueling", false)
+	game._update_walk_direction(Vector2(0.0, 1.0))
+	assert(game.walk_dir_key == "walk_down", "Moving down must set walk_dir_key to walk_down")
+	game._update_walk_direction(Vector2(0.0, -1.0))
+	assert(game.walk_dir_key == "walk_up", "Moving up must set walk_dir_key to walk_up")
+	game._update_walk_direction(Vector2(-1.0, 0.0))
+	assert(game.walk_dir_key == "walk_side" and game.player_sprite.flip_h, "Moving left must set walk_side + flip_h")
+	game._perform_basic_attack(Vector2.RIGHT)
+	assert(game.player_sprite.texture == game._get_hero_tex("bai_yueling", "attack_4f") and game.player_sprite.hframes == 4, "Basic attack must play attack_4f (4 frames)")
+	game._cast_skill_q(Vector2.RIGHT)
+	assert(game.player_sprite.texture == game._get_hero_tex("bai_yueling", "skill_4f") and game.player_sprite.hframes == 4, "Skill Q must play skill_4f (4 frames)")
+	game.attack_timer = 0.0
+	game.pose_override_timer = 0.0
+
+	# 2. Verify yu_han extended spear reach (> sword 145 & chain 165)
+	assert(float(HeroData.HEROES["yu_han"]["range"]) >= 180.0 and float(HeroData.HEROES["yu_han"]["range"]) > float(HeroData.HEROES["bai_yueling"]["range"]), "yu_han extended spear reach mismatch")
 
 	# 3. Verify party swap & costume toggle + save persistence
 	game._toggle_party_member("zhao_yan")

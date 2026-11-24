@@ -11,10 +11,44 @@ extends RefCounted
 # ==============================================================================
 
 
+static var fx_intensity: float = 1.0
+static var _active_roots: int = 0
+
+
+static func set_fx_reduced(reduced: bool) -> void:
+	fx_intensity = 0.52 if reduced else 1.0
+
+
 static func _make_add_mat() -> CanvasItemMaterial:
 	var m := CanvasItemMaterial.new()
 	m.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	return m
+
+
+static func _mount_role(parent: Node2D, node: Node2D, role: String) -> void:
+	if not is_instance_valid(parent):
+		node.queue_free()
+		return
+	var cap := 14 if fx_intensity < 0.8 else 30
+	var crowd_damp := 0.55 if _active_roots >= cap else 1.0
+	if role == "floor":
+		node.z_index = 1
+		node.modulate.a = 0.34 * fx_intensity * crowd_damp
+	elif role == "impact":
+		node.z_index = 3
+		node.modulate.a = 0.88 * fx_intensity
+	elif role == "slash":
+		node.z_index = 2
+		node.modulate.a = 0.74 * fx_intensity * crowd_damp
+	elif role == "ult_fx":
+		node.z_index = 2
+		node.modulate.a = 0.64 * fx_intensity * crowd_damp
+	else:
+		node.z_index = 2
+		node.modulate.a = 0.68 * fx_intensity * crowd_damp
+	_active_roots += 1
+	node.tree_exited.connect(func(): _active_roots = maxi(0, _active_roots - 1))
+	parent.add_child(node)
 
 
 static func _make_star_poly(outer_r: float, inner_r: float, points_cnt: int) -> PackedVector2Array:
@@ -41,7 +75,7 @@ static func spawn_azure_star_slash(parent: Node2D, pos: Vector2, angle: float, c
 	root.position = pos
 	root.rotation = angle
 	root.scale = Vector2(scale_mult, scale_mult)
-	parent.add_child(root)
+	_mount_role(parent, root, "slash")
 	var add_mat := _make_add_mat()
 	var bright := col.lightened(0.55)
 
@@ -95,7 +129,7 @@ static func spawn_critical_star_burst(parent: Node2D, pos: Vector2, col: Color, 
 	var root := Node2D.new()
 	root.position = pos
 	root.scale = Vector2(0.35 * scale_mult, 0.35 * scale_mult)
-	parent.add_child(root)
+	_mount_role(parent, root, "impact")
 	var add_mat := _make_add_mat()
 
 	# Outer 12-spike sunburst ring
@@ -134,7 +168,7 @@ static func spawn_frostbound_eruption(floor_parent: Node2D, fx_parent: Node2D, p
 	var add_mat := _make_add_mat()
 	var seal := Node2D.new()
 	seal.position = pos
-	floor_parent.add_child(seal)
+	_mount_role(floor_parent, seal, "floor")
 
 	# Spiked outer seal ring (16 teeth)
 	var toothed := Line2D.new()
@@ -163,7 +197,7 @@ static func spawn_frostbound_eruption(floor_parent: Node2D, fx_parent: Node2D, p
 	# 8 Upward Crystal Shards / Spikes around the ring
 	var spikes := Node2D.new()
 	spikes.position = pos
-	fx_parent.add_child(spikes)
+	_mount_role(fx_parent, spikes, "skill_fx")
 	for i in range(8):
 		var a := (float(i) / 8.0) * TAU
 		var shard := Polygon2D.new()
@@ -189,7 +223,7 @@ static func spawn_frostbound_eruption(floor_parent: Node2D, fx_parent: Node2D, p
 static func spawn_galaxy_vortex(floor_parent: Node2D, pos: Vector2, col: Color, radius: float = 185.0) -> void:
 	var root := Node2D.new()
 	root.position = pos
-	floor_parent.add_child(root)
+	_mount_role(floor_parent, root, "floor")
 	var add_mat := _make_add_mat()
 	var bright := col.lightened(0.45)
 
@@ -224,7 +258,7 @@ static func spawn_summoning_pillar(floor_parent: Node2D, fx_parent: Node2D, pos:
 	# Double Concentric Summoning Seal on Floor
 	var seal := Node2D.new()
 	seal.position = pos
-	floor_parent.add_child(seal)
+	_mount_role(floor_parent, seal, "floor")
 	for r_val in [190.0, 155.0]:
 		var ring := Line2D.new()
 		ring.material = add_mat
@@ -252,7 +286,7 @@ static func spawn_summoning_pillar(floor_parent: Node2D, fx_parent: Node2D, pos:
 	# Vertical Light Pillar + Helical Spiral Ribbon
 	var pillar := Node2D.new()
 	pillar.position = pos
-	fx_parent.add_child(pillar)
+	_mount_role(fx_parent, pillar, "ult_fx")
 
 	var beam := Polygon2D.new()
 	beam.material = add_mat
@@ -286,7 +320,7 @@ static func spawn_sky_sword_drop(fx_parent: Node2D, target_pos: Vector2, col: Co
 	var bright := col.lightened(0.55)
 	var blade := Node2D.new()
 	blade.position = target_pos + Vector2(0, -240)
-	fx_parent.add_child(blade)
+	_mount_role(fx_parent, blade, "impact")
 
 	var poly := Polygon2D.new()
 	poly.material = add_mat
@@ -349,7 +383,7 @@ static func spawn_ice_crescent_wave(fx_parent: Node2D, pos: Vector2, angle: floa
 	var root := Node2D.new()
 	root.position = pos
 	root.rotation = angle
-	fx_parent.add_child(root)
+	_mount_role(fx_parent, root, "slash")
 
 	for spec in [[58.0, 7.0, Color(col.r, col.g, col.b, 0.92), 0.0], [46.0, 3.2, Color(0.92, 0.98, 1.0, 0.95), 6.0]]:
 		var r: float = float(spec[0])
@@ -397,7 +431,7 @@ static func spawn_ice_lotus_and_sword_halo(floor_parent: Node2D, fx_parent: Node
 	var lotus := Node2D.new()
 	lotus.position = pos
 	lotus.scale = Vector2(0.18, 0.18)
-	floor_parent.add_child(lotus)
+	_mount_role(floor_parent, lotus, "floor")
 
 	for layer in [[8, 128.0, 28.0, 0.0, Color(col.r, col.g, col.b, 0.65)], [8, 92.0, 22.0, PI / 8.0, Color(0.86, 0.97, 1.0, 0.78)]]:
 		var cnt: int = int(layer[0])
@@ -429,7 +463,7 @@ static func spawn_ice_lotus_and_sword_halo(floor_parent: Node2D, fx_parent: Node
 	# 12-Sword Celestial Halo on fx_parent
 	var halo := Node2D.new()
 	halo.position = pos + Vector2(0.0, -24.0)
-	fx_parent.add_child(halo)
+	_mount_role(fx_parent, halo, "skill_fx")
 	for i in range(12):
 		var a := (float(i) / 12.0) * TAU
 		var sword := Polygon2D.new()
@@ -458,7 +492,7 @@ static func spawn_myriad_ice_domain(floor_parent: Node2D, fx_parent: Node2D, pos
 	# Celestial Rune Array on floor
 	var array_node := Node2D.new()
 	array_node.position = pos
-	floor_parent.add_child(array_node)
+	_mount_role(floor_parent, array_node, "floor")
 
 	for spec in [[220.0, 155.0, 4.0, col], [165.0, 116.0, 2.5, bright]]:
 		var ring := Line2D.new()
@@ -494,14 +528,14 @@ static func spawn_myriad_ice_domain(floor_parent: Node2D, fx_parent: Node2D, pos
 		array_node.add_child(tick)
 
 	var atw := array_node.create_tween()
-	atw.tween_property(array_node, "rotation", 0.55, 1.25)
+	atw.tween_property(array_node, "rotation", 0.55, 0.65)
 	atw.tween_property(array_node, "modulate:a", 0.0, 0.25)
 	atw.tween_callback(array_node.queue_free)
 
 	# 10 Perimeter Jagged Ice Crystal Pillars
 	var pillars := Node2D.new()
 	pillars.position = pos
-	fx_parent.add_child(pillars)
+	_mount_role(fx_parent, pillars, "ult_fx")
 	for i in range(10):
 		var a := (float(i) / 10.0) * TAU
 		var spire := Polygon2D.new()
@@ -518,7 +552,7 @@ static func spawn_myriad_ice_domain(floor_parent: Node2D, fx_parent: Node2D, pos
 		ptw.tween_property(spire, "scale", Vector2(1.0, 1.0), 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 	var ftw := pillars.create_tween()
-	ftw.tween_interval(0.95)
+	ftw.tween_interval(0.48)
 	ftw.tween_property(pillars, "modulate:a", 0.0, 0.35)
 	ftw.tween_callback(pillars.queue_free)
 
@@ -529,7 +563,7 @@ static func spawn_crimson_ribbon_needles(fx_parent: Node2D, pos: Vector2, angle:
 	var root := Node2D.new()
 	root.position = pos
 	root.rotation = angle
-	fx_parent.add_child(root)
+	_mount_role(fx_parent, root, "slash")
 
 	var ribbon := Line2D.new()
 	ribbon.material = add_mat
@@ -571,7 +605,7 @@ static func spawn_golden_vine_sanctuary(floor_parent: Node2D, fx_parent: Node2D,
 
 	var seal := Node2D.new()
 	seal.position = pos
-	floor_parent.add_child(seal)
+	_mount_role(floor_parent, seal, "floor")
 
 	var ring := Line2D.new()
 	ring.material = add_mat
@@ -589,7 +623,7 @@ static func spawn_golden_vine_sanctuary(floor_parent: Node2D, fx_parent: Node2D,
 
 	var dome := Node2D.new()
 	dome.position = pos
-	fx_parent.add_child(dome)
+	_mount_role(fx_parent, dome, "ult_fx")
 
 	var dome_fill := Polygon2D.new()
 	dome_fill.material = add_mat
@@ -644,7 +678,7 @@ static func spawn_ninetail_blossom_domain(floor_parent: Node2D, fx_parent: Node2
 
 	var domain := Node2D.new()
 	domain.position = pos
-	floor_parent.add_child(domain)
+	_mount_role(floor_parent, domain, "floor")
 
 	for spec in [[225.0, 158.0, 4.0, gold], [168.0, 118.0, 2.5, bright]]:
 		var ring := Line2D.new()
@@ -677,7 +711,7 @@ static func spawn_ninetail_blossom_domain(floor_parent: Node2D, fx_parent: Node2
 	# Radiant 9-Tail Spirit Fan + 18 drifting golden petals
 	var fan := Node2D.new()
 	fan.position = pos + Vector2(0.0, -36.0)
-	fx_parent.add_child(fan)
+	_mount_role(fx_parent, fan, "ult_fx")
 
 	for i in range(9):
 		var t := float(i) / 8.0
@@ -715,7 +749,7 @@ static func spawn_ninetail_blossom_domain(floor_parent: Node2D, fx_parent: Node2
 		ptw.tween_property(petal, "position", Vector2(cos(pa) * 215.0, sin(pa) * 145.0 - 24.0), 1.15).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 	var ftw := fan.create_tween()
-	ftw.tween_interval(1.0)
+	ftw.tween_interval(0.50)
 	ftw.tween_property(fan, "modulate:a", 0.0, 0.35)
 	ftw.tween_callback(fan.queue_free)
 
@@ -728,7 +762,7 @@ static func spawn_talisman_lightning_burst(fx_parent: Node2D, pos: Vector2, angl
 	var root := Node2D.new()
 	root.position = pos
 	root.rotation = angle
-	fx_parent.add_child(root)
+	_mount_role(fx_parent, root, "slash")
 
 	var shock := Line2D.new()
 	shock.material = add_mat
@@ -779,7 +813,7 @@ static func spawn_bagua_binding_array(floor_parent: Node2D, fx_parent: Node2D, p
 
 	var seal := Node2D.new()
 	seal.position = pos
-	floor_parent.add_child(seal)
+	_mount_role(floor_parent, seal, "floor")
 
 	var oct := Line2D.new()
 	oct.material = add_mat
@@ -821,7 +855,7 @@ static func spawn_bagua_binding_array(floor_parent: Node2D, fx_parent: Node2D, p
 	# 4 Luminous Spirit Chains snapping across + central golden talisman flash
 	var chains := Node2D.new()
 	chains.position = pos
-	fx_parent.add_child(chains)
+	_mount_role(fx_parent, chains, "skill_fx")
 	for i in range(4):
 		var a := (float(i) / 4.0) * TAU + PI * 0.25
 		var chain := Line2D.new()
@@ -862,7 +896,7 @@ static func spawn_heavenly_bagua_dome(floor_parent: Node2D, fx_parent: Node2D, p
 
 	var array_node := Node2D.new()
 	array_node.position = pos
-	floor_parent.add_child(array_node)
+	_mount_role(floor_parent, array_node, "floor")
 
 	for spec in [[225.0, 158.0, 4.0, cyan], [166.0, 116.0, 2.5, bright]]:
 		var ring := Line2D.new()
@@ -882,7 +916,7 @@ static func spawn_heavenly_bagua_dome(floor_parent: Node2D, fx_parent: Node2D, p
 	# Barrier dome + 8 orbiting talismans + 8 surging lightning pillars
 	var dome := Node2D.new()
 	dome.position = pos
-	fx_parent.add_child(dome)
+	_mount_role(fx_parent, dome, "ult_fx")
 
 	var dome_fill := Polygon2D.new()
 	dome_fill.material = add_mat
@@ -934,7 +968,7 @@ static func spawn_heavenly_bagua_dome(floor_parent: Node2D, fx_parent: Node2D, p
 		ptw.tween_property(pillar, "scale", Vector2(1.0, 1.0), 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 	var ftw := dome.create_tween()
-	ftw.tween_interval(1.0)
+	ftw.tween_interval(0.50)
 	ftw.tween_property(dome, "modulate:a", 0.0, 0.35)
 	ftw.tween_callback(dome.queue_free)
 
@@ -948,7 +982,7 @@ static func spawn_demon_chain_lash(fx_parent: Node2D, pos: Vector2, angle: float
 	var root := Node2D.new()
 	root.position = pos
 	root.rotation = angle
-	fx_parent.add_child(root)
+	_mount_role(fx_parent, root, "slash")
 
 	var outer := Line2D.new()
 	outer.material = add_mat
@@ -1008,7 +1042,7 @@ static func spawn_hellfire_wave_eruption(floor_parent: Node2D, fx_parent: Node2D
 
 	var seal := Node2D.new()
 	seal.position = pos
-	floor_parent.add_child(seal)
+	_mount_role(floor_parent, seal, "floor")
 
 	var ring := Line2D.new()
 	ring.material = add_mat
@@ -1026,7 +1060,7 @@ static func spawn_hellfire_wave_eruption(floor_parent: Node2D, fx_parent: Node2D
 
 	var flames := Node2D.new()
 	flames.position = pos
-	fx_parent.add_child(flames)
+	_mount_role(fx_parent, flames, "skill_fx")
 	for i in range(10):
 		var a := (float(i) / 10.0) * TAU
 		var f_pos := Vector2(cos(a) * 145.0, sin(a) * 102.0)
@@ -1070,7 +1104,7 @@ static func spawn_demon_king_chain_abyss(floor_parent: Node2D, fx_parent: Node2D
 
 	var abyss := Node2D.new()
 	abyss.position = pos
-	floor_parent.add_child(abyss)
+	_mount_role(floor_parent, abyss, "floor")
 
 	for spec in [[230.0, 162.0, 4.5, violet], [168.0, 118.0, 3.0, crimson]]:
 		var ring := Line2D.new()
@@ -1096,13 +1130,13 @@ static func spawn_demon_king_chain_abyss(floor_parent: Node2D, fx_parent: Node2D
 		abyss.add_child(crack)
 
 	var atw := abyss.create_tween()
-	atw.tween_interval(1.0)
+	atw.tween_interval(0.50)
 	atw.tween_property(abyss, "modulate:a", 0.0, 0.35)
 	atw.tween_callback(abyss.queue_free)
 
 	var inferno := Node2D.new()
 	inferno.position = pos
-	fx_parent.add_child(inferno)
+	_mount_role(fx_parent, inferno, "ult_fx")
 
 	for i in range(12):
 		var a := (float(i) / 12.0) * TAU
@@ -1153,7 +1187,7 @@ static func spawn_demon_king_chain_abyss(floor_parent: Node2D, fx_parent: Node2D
 		ctw.tween_property(chain_root, "scale", Vector2(1.0, 1.0), 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 	var itw := inferno.create_tween()
-	itw.tween_interval(1.0)
+	itw.tween_interval(0.50)
 	itw.tween_property(inferno, "modulate:a", 0.0, 0.35)
 	itw.tween_callback(inferno.queue_free)
 
@@ -1163,7 +1197,7 @@ static func spawn_ink_shadow_cleave(fx_parent: Node2D, pos: Vector2, angle: floa
 	var root := Node2D.new()
 	root.position = pos
 	root.rotation = angle
-	fx_parent.add_child(root)
+	_mount_role(fx_parent, root, "slash")
 
 	# Bold black-ink brush-stroke arc (normal blend so dark ink pops cleanly)
 	var ink_arc := Line2D.new()
@@ -1221,7 +1255,7 @@ static func spawn_blood_qi_ignition(floor_parent: Node2D, fx_parent: Node2D, pos
 	burst.color = ice_white
 	burst.position = pos + Vector2(0.0, -24.0)
 	burst.scale = Vector2(0.25, 0.25)
-	fx_parent.add_child(burst)
+	_mount_role(fx_parent, burst, "skill_fx")
 	var btw := burst.create_tween()
 	btw.tween_property(burst, "scale", Vector2(1.45, 1.45), 0.20).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	btw.parallel().tween_property(burst, "modulate:a", 0.0, 0.24)
@@ -1230,7 +1264,7 @@ static func spawn_blood_qi_ignition(floor_parent: Node2D, fx_parent: Node2D, pos
 	# Glowing crimson blood-qi starburst on floor
 	var floor_star := Node2D.new()
 	floor_star.position = pos
-	floor_parent.add_child(floor_star)
+	_mount_role(floor_parent, floor_star, "floor")
 
 	var star_poly := Polygon2D.new()
 	star_poly.material = add_mat
@@ -1249,7 +1283,7 @@ static func spawn_blood_qi_ignition(floor_parent: Node2D, fx_parent: Node2D, pos
 	# 3 swirling crimson energy ribbons curling around pos
 	var ribbons := Node2D.new()
 	ribbons.position = pos + Vector2(0.0, -24.0)
-	fx_parent.add_child(ribbons)
+	_mount_role(fx_parent, ribbons, "skill_fx")
 	for r_i in range(3):
 		var base_a := (float(r_i) / 3.0) * TAU
 		var rib := Line2D.new()
@@ -1281,7 +1315,7 @@ static func spawn_heaven_severing_blood_slash(floor_parent: Node2D, fx_parent: N
 	# Shattered crimson ground-impact starburst
 	var impact := Node2D.new()
 	impact.position = pos
-	floor_parent.add_child(impact)
+	_mount_role(floor_parent, impact, "floor")
 
 	var star := Polygon2D.new()
 	star.material = add_mat
@@ -1309,7 +1343,7 @@ static func spawn_heaven_severing_blood_slash(floor_parent: Node2D, fx_parent: N
 	# Twin spiraling crimson ribbons + 8 metallic broken-sword shards + Colossal Vertical Crimson Beam
 	var slash_fx := Node2D.new()
 	slash_fx.position = pos
-	fx_parent.add_child(slash_fx)
+	_mount_role(fx_parent, slash_fx, "ult_fx")
 
 	for r_i in range(2):
 		var sign_v := 1.0 if r_i == 0 else -1.0
@@ -1366,7 +1400,7 @@ static func spawn_heaven_severing_blood_slash(floor_parent: Node2D, fx_parent: N
 	btw.parallel().tween_property(beam, "scale", Vector2(1.15, 1.0), 0.14)
 
 	var ftw := slash_fx.create_tween()
-	ftw.tween_interval(1.0)
+	ftw.tween_interval(0.50)
 	ftw.tween_property(slash_fx, "modulate:a", 0.0, 0.35)
 	ftw.tween_callback(slash_fx.queue_free)
 
@@ -1381,7 +1415,7 @@ static func spawn_thunder_spear_thrust(fx_parent: Node2D, pos: Vector2, angle: f
 	var root := Node2D.new()
 	root.position = pos
 	root.rotation = angle
-	fx_parent.add_child(root)
+	_mount_role(fx_parent, root, "slash")
 
 	var outer_spear := Polygon2D.new()
 	outer_spear.material = add_mat
@@ -1428,7 +1462,7 @@ static func spawn_solar_thunder_ring(floor_parent: Node2D, fx_parent: Node2D, po
 
 	var seal := Node2D.new()
 	seal.position = pos
-	floor_parent.add_child(seal)
+	_mount_role(floor_parent, seal, "floor")
 
 	var ring := Line2D.new()
 	ring.material = add_mat
@@ -1458,7 +1492,7 @@ static func spawn_solar_thunder_ring(floor_parent: Node2D, fx_parent: Node2D, po
 
 	var fx := Node2D.new()
 	fx.position = pos
-	fx_parent.add_child(fx)
+	_mount_role(fx_parent, fx, "skill_fx")
 
 	var arc := Line2D.new()
 	arc.material = add_mat
@@ -1506,7 +1540,7 @@ static func spawn_nine_heavens_spear_judgment(floor_parent: Node2D, fx_parent: N
 
 	var halo := Node2D.new()
 	halo.position = pos
-	floor_parent.add_child(halo)
+	_mount_role(floor_parent, halo, "floor")
 
 	for spec in [[228.0, 160.0, 4.5, gold], [168.0, 118.0, 3.0, bright]]:
 		var ring := Line2D.new()
@@ -1537,7 +1571,7 @@ static func spawn_nine_heavens_spear_judgment(floor_parent: Node2D, fx_parent: N
 
 	var volley := Node2D.new()
 	volley.position = pos
-	fx_parent.add_child(volley)
+	_mount_role(fx_parent, volley, "ult_fx")
 
 	for b_i in range(4):
 		var ba := (float(b_i) / 4.0) * TAU + 0.35
@@ -1572,7 +1606,7 @@ static func spawn_nine_heavens_spear_judgment(floor_parent: Node2D, fx_parent: N
 		stw.tween_property(spear, "position", dst, 0.13).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 
 	var vtw := volley.create_tween()
-	vtw.tween_interval(1.0)
+	vtw.tween_interval(0.50)
 	vtw.tween_property(volley, "modulate:a", 0.0, 0.35)
 	vtw.tween_callback(volley.queue_free)
 
@@ -1586,7 +1620,7 @@ static func spawn_alchemy_soul_bolt(fx_parent: Node2D, pos: Vector2, angle: floa
 	var root := Node2D.new()
 	root.position = pos
 	root.rotation = angle
-	fx_parent.add_child(root)
+	_mount_role(fx_parent, root, "slash")
 
 	var outer_beam := Polygon2D.new()
 	outer_beam.material = add_mat
@@ -1633,7 +1667,7 @@ static func spawn_soul_siphon_cauldron_ring(floor_parent: Node2D, fx_parent: Nod
 
 	var seal := Node2D.new()
 	seal.position = pos
-	floor_parent.add_child(seal)
+	_mount_role(floor_parent, seal, "floor")
 
 	var ring := Line2D.new()
 	ring.material = add_mat
@@ -1651,7 +1685,7 @@ static func spawn_soul_siphon_cauldron_ring(floor_parent: Node2D, fx_parent: Nod
 
 	var fx := Node2D.new()
 	fx.position = pos
-	fx_parent.add_child(fx)
+	_mount_role(fx_parent, fx, "skill_fx")
 
 	for i in range(8):
 		var a := (float(i) / 8.0) * TAU
@@ -1695,7 +1729,7 @@ static func spawn_primordial_cauldron_nova(floor_parent: Node2D, fx_parent: Node
 
 	var circle := Node2D.new()
 	circle.position = pos
-	floor_parent.add_child(circle)
+	_mount_role(floor_parent, circle, "floor")
 
 	for spec in [[225.0, 158.0, 4.5, emerald], [164.0, 115.0, 3.0, bright]]:
 		var ring := Line2D.new()
@@ -1714,7 +1748,7 @@ static func spawn_primordial_cauldron_nova(floor_parent: Node2D, fx_parent: Node
 
 	var nova := Node2D.new()
 	nova.position = pos
-	fx_parent.add_child(nova)
+	_mount_role(fx_parent, nova, "ult_fx")
 
 	# Expanding Emerald Soul-Nova Starburst
 	var star := Polygon2D.new()
@@ -1764,6 +1798,6 @@ static func spawn_primordial_cauldron_nova(floor_parent: Node2D, fx_parent: Node
 		ptw.tween_property(wisp, "position", Vector2(cos(pa) * 215.0, sin(pa) * 148.0 - 48.0), 1.05).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 	var ntw := nova.create_tween()
-	ntw.tween_interval(1.0)
+	ntw.tween_interval(0.50)
 	ntw.tween_property(nova, "modulate:a", 0.0, 0.35)
 	ntw.tween_callback(nova.queue_free)

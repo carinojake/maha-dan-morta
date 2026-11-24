@@ -47,9 +47,15 @@ func _process(_delta: float) -> bool:
 		_check(not _scene.bot_center_row.visible, "Desktop keyboard pills must hide when touch mode is active")
 
 		var mc: Control = _scene.mobile_controls
-		for b in [mc.btn_q, mc.btn_dash, mc.btn_e, mc.btn_r, mc.btn_attack, mc.btn_auto, mc.btn_codex]:
+		for b in [mc.btn_q, mc.btn_dash, mc.btn_e, mc.btn_r, mc.btn_attack, mc.btn_auto, mc.btn_speed, mc.btn_codex]:
 			var r := (b as Control).get_global_rect()
 			_check(r.position.x >= 0.0 and r.end.x <= 600.0 and r.position.y >= 400.0 and r.end.y <= 950.0, "iPad left-hand button out of thumb zone: %s -> %s" % [b.text, str(r)])
+
+		# Also verify 2-handed mirror mode moves attack arc cleanly to the right thumb zone
+		_scene._toggle_touch_mirror()
+		var r_right := (mc.btn_attack as Control).get_global_rect()
+		_check(r_right.position.x >= 1000.0 and r_right.end.x <= 1280.0, "2-handed mirror mode must place btn_attack on right side: %s" % str(r_right))
+		_scene._toggle_touch_mirror()
 
 		var prev_pos: Vector2 = _scene.player.global_position
 		mc.joy_vector = Vector2(1.0, 0.0)
